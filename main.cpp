@@ -14,66 +14,15 @@
 #include "font.h"
 #include "glb_model.h"
 
-const GLfloat kCameraSpeed = 0.02;
-const GLfloat kMouseSensitivity = 0.1;
 const GLfloat kWorldScale = 1.20f;
-
-const GLfloat kDefaultCameraEyePositionX = 10;
-const GLfloat kDefaultCameraEyePositionY = 6;
-const GLfloat kDefaultCameraEyePositionZ = 6;
-GLfloat camera_eye_x = kDefaultCameraEyePositionX;
-GLfloat camera_eye_y = kDefaultCameraEyePositionY;
-GLfloat camera_eye_z = kDefaultCameraEyePositionZ;
-
-const GLfloat kDefaultCameraDirectionX = -0.5817f;
-const GLfloat kDefaultCameraDirectionY = -0.2053f;
-const GLfloat kDefaultCameraDirectionZ = -0.7871f;
-GLfloat camera_direction_x = kDefaultCameraDirectionX;
-GLfloat camera_direction_y = kDefaultCameraDirectionY;
-GLfloat camera_direction_z = kDefaultCameraDirectionZ;
-
-const GLfloat kCameraUpX = 0;
-const GLfloat kCameraUpY = 1;
-const GLfloat kCameraUpZ = 0;
-
-GLfloat camera_right_x = -0.7871f;
-GLfloat camera_right_y = 0;
-GLfloat camera_right_z = 0.5817f;
-
-const GLfloat kDefaultCameraYaw = -126.47f;
-GLfloat camera_yaw = kDefaultCameraYaw;
-
-const GLfloat kCameraPitchLimit = 90;
-const GLfloat kDefaultCameraPitch = -11.85f;
-GLfloat camera_pitch = kDefaultCameraPitch;
 
 const GLfloat kPerspectiveFieldOfViewAngle = 45;
 const GLfloat kPerspectiveNearZ = 0.1;
 const GLfloat kPerspectiveFarZ = 100;
 
-const GLfloat kModelInitialRotationX = 0;
-const GLfloat kModelInitialRotationY = 0;
 const GLfloat kParkedCarPositionX = 3.4f;
 const GLfloat kParkedCarPositionZ = -12.0f;
 
-GLfloat translate_x = 0;
-GLfloat translate_y = 0;
-GLfloat translate_z = 0;
-GLfloat rotate_x = 0;
-GLfloat rotate_y = 0;
-GLfloat rotate_z = 0;
-GLfloat scale_x = 1;
-GLfloat scale_y = 1;
-GLfloat scale_z = 1;
-
-const GLfloat kTranslateIncrement = 0.03;
-const GLfloat kRotateIncrement = 0.25;
-const GLfloat kScaleIncrement = 0.03;
-const GLfloat kMinimumScale = 0.1;
-
-bool translating = false;
-bool rotating = false;
-bool scaling = false;
 bool street_light_enabled = false;
 bool f_key_was_pressed = false;
 
@@ -131,8 +80,6 @@ const GLfloat kHudWidth = 500;
 std::ostringstream hud_text;
 
 double last_time = 0;
-bool bright_mode_enabled = false;
-bool b_key_was_pressed = false;
 const int kRainDropCount = 1600;
 
 struct MovingCloud {
@@ -181,46 +128,206 @@ void initialize_weather() {
   }
 }
 
-bool key_pressed_once(GLFWwindow* window, int key, bool& was_pressed) {
-  const bool pressed = glfwGetKey(window, key) == GLFW_PRESS;
-  const bool just_pressed = pressed && !was_pressed;
-  was_pressed = pressed;
-  return just_pressed;
+// ============================================================================
+// AULA 15 - CAMERA E COLISOES
+// Ajuste velocidade, altura e limites neste bloco. Coordenadas em unidades
+// do mundo; os objetos e o terreno sao convertidos com kWorldScale.
+// ============================================================================
+const GLfloat kCameraSpeed = 9.0f;  // Unidades por segundo.
+const GLfloat kMouseSensitivity = 0.1f;
+const GLfloat kCameraEyeHeight = 3.0f;
+const GLfloat kCameraRadius = 0.25f;
+const GLfloat kCameraPitchLimit = 85.0f;
+const GLfloat kCameraMinimumX = -22.0f * kWorldScale + kCameraRadius;
+const GLfloat kCameraMaximumX = 22.0f * kWorldScale - kCameraRadius;
+const GLfloat kCameraMinimumZ = -38.0f * kWorldScale + kCameraRadius;
+const GLfloat kCameraMaximumZ = 8.0f * kWorldScale - kCameraRadius;
+// Inicio na rua, em frente ao grupo: Neymar, Pikachu e Fusca no mesmo enquadramento.
+// X/Z = posicao; yaw = olhar para os lados; pitch = olhar para cima/baixo.
+const GLfloat kDefaultCameraEyePositionX = -2.0f;
+const GLfloat kDefaultCameraEyePositionZ = -22.9f;
+const GLfloat kDefaultCameraYaw = 152.5f;
+const GLfloat kDefaultCameraPitch = 0.0f;
+const GLfloat kCameraUpX = 0, kCameraUpY = 1, kCameraUpZ = 0;
+GLfloat camera_eye_x = kDefaultCameraEyePositionX;
+GLfloat camera_eye_y = kRoadHeight * kWorldScale + kCameraEyeHeight;
+GLfloat camera_eye_z = kDefaultCameraEyePositionZ;
+GLfloat camera_direction_x = 0, camera_direction_y = 0, camera_direction_z = -1;
+GLfloat camera_yaw = kDefaultCameraYaw, camera_pitch = kDefaultCameraPitch;
+double camera_last_time = 0;
+
+struct CollisionBox {
+  GLfloat min_x, min_y, min_z, max_x, max_y, max_z;
+};
+std::vector<CollisionBox> scene_collisions;
+
+GLfloat camera_ground_height(GLfloat world_x, GLfloat world_z) {
+  const GLfloat x = world_x / kWorldScale, z = world_z / kWorldScale;
+  const bool sidewalk = (x >= -7.5f && x <= -5) || (x >= 5 && x <= 7.5f);
+  const bool house_path = x >= -14 && x <= -7.5f && z >= -18 && z <= -16.4f;
+  const GLfloat ground = (sidewalk || house_path) ? kSidewalkHeight :
+                         (x > -5 && x < 5 ? kRoadHeight : kGrassHeight);
+  return ground * kWorldScale;
 }
 
-static void mouse_read(GLFWwindow* window, double mouse_x, double mouse_y) {
-  static bool mouse_initialized = false;
-  static GLfloat last_mouse_x = 0, last_mouse_y = 0;
-  if (!mouse_initialized) {
-    last_mouse_x = mouse_x;
-    last_mouse_y = mouse_y;
-    mouse_initialized = true;
-  }
-
-  GLfloat mouse_delta_x = (mouse_x - last_mouse_x);
-  GLfloat mouse_delta_y = (last_mouse_y - mouse_y);
-  last_mouse_x = mouse_x;
-  last_mouse_y = mouse_y;
-
-  camera_pitch += (mouse_delta_y * kMouseSensitivity);
-  if (camera_pitch > kCameraPitchLimit) {
-    camera_pitch = kCameraPitchLimit;
-  }
-  if (camera_pitch < -kCameraPitchLimit) {
-    camera_pitch = -kCameraPitchLimit;
-  }
-  camera_yaw += (mouse_delta_x * kMouseSensitivity);
-
-  GLfloat camera_pitch_radians = camera_pitch * (3.1415 / 180);
-  GLfloat camera_yaw_radians = camera_yaw * (3.1415 / 180);
-  camera_direction_x = cosf(camera_yaw_radians) * cosf(camera_pitch_radians);
-  camera_direction_y = sinf(camera_pitch_radians);
-  camera_direction_z = sinf(camera_yaw_radians) * cosf(camera_pitch_radians);
-
-  camera_right_x = camera_direction_z * kCameraUpY - camera_direction_y * kCameraUpZ;
-  camera_right_y = camera_direction_x * kCameraUpZ - camera_direction_z * kCameraUpX;
-  camera_right_z = camera_direction_y * kCameraUpX - camera_direction_x * kCameraUpY;
+void update_camera_direction() {
+  const GLfloat yaw = camera_yaw * 3.14159265f / 180;
+  const GLfloat pitch = camera_pitch * 3.14159265f / 180;
+  camera_direction_x = std::cos(yaw) * std::cos(pitch);
+  camera_direction_y = std::sin(pitch);
+  camera_direction_z = std::sin(yaw) * std::cos(pitch);
 }
+
+void reset_camera() {
+  camera_eye_x = kDefaultCameraEyePositionX;
+  camera_eye_z = kDefaultCameraEyePositionZ;
+  camera_eye_y = camera_ground_height(camera_eye_x, camera_eye_z) + kCameraEyeHeight;
+  camera_yaw = kDefaultCameraYaw;
+  camera_pitch = kDefaultCameraPitch;
+  update_camera_direction();
+}
+
+// Limites calculados dos vertices ja normalizados, como no desenho do modelo.
+CollisionBox model_collision_bounds(const GlbModel& object) {
+  const GLfloat limit = std::numeric_limits<GLfloat>::max();
+  CollisionBox box{limit, limit, limit, -limit, -limit, -limit};
+  for (unsigned int i = 0; i < object.scene->mNumMeshes; ++i) {
+    const aiMesh* mesh = object.scene->mMeshes[i];
+    for (unsigned int j = 0; j < mesh->mNumVertices; ++j) {
+      const aiVector3D& v = mesh->mVertices[j];
+      const GLfloat x = (v.x - object.center_x) * object.normalization_scale;
+      const GLfloat y = (v.y - object.center_y) * object.normalization_scale;
+      const GLfloat z = (v.z - object.center_z) * object.normalization_scale;
+      box.min_x = fminf(box.min_x, x); box.max_x = fmaxf(box.max_x, x);
+      box.min_y = fminf(box.min_y, y); box.max_y = fmaxf(box.max_y, y);
+      box.min_z = fminf(box.min_z, z); box.max_z = fmaxf(box.max_z, z);
+    }
+  }
+  return box;
+}
+
+// Mesma ordem do OpenGL: deslocamento local, escala, Rz, Ry, Rx e translacao.
+CollisionBox transform_collision_box(const CollisionBox& local,
+    GLfloat x, GLfloat y, GLfloat z, GLfloat sx, GLfloat sy, GLfloat sz,
+    GLfloat rx = 0, GLfloat ry = 0, GLfloat rz = 0, GLfloat offset_y = 0) {
+  const GLfloat limit = std::numeric_limits<GLfloat>::max();
+  CollisionBox box{limit, limit, limit, -limit, -limit, -limit};
+  const GLfloat ax = rx * 3.14159265f / 180, ay = ry * 3.14159265f / 180;
+  const GLfloat az = rz * 3.14159265f / 180;
+  for (int corner = 0; corner < 8; ++corner) {
+    GLfloat px = ((corner & 1) ? local.max_x : local.min_x) * sx;
+    GLfloat py = (((corner & 2) ? local.max_y : local.min_y) + offset_y) * sy;
+    GLfloat pz = ((corner & 4) ? local.max_z : local.min_z) * sz;
+    GLfloat a = px * std::cos(az) - py * std::sin(az);
+    py = px * std::sin(az) + py * std::cos(az); px = a;
+    a = px * std::cos(ay) + pz * std::sin(ay);
+    pz = -px * std::sin(ay) + pz * std::cos(ay); px = a;
+    a = py * std::cos(ax) - pz * std::sin(ax);
+    pz = py * std::sin(ax) + pz * std::cos(ax); py = a;
+    px = (px + x) * kWorldScale;
+    py = (py + y) * kWorldScale;
+    pz = (pz + z) * kWorldScale;
+    box.min_x = fminf(box.min_x, px); box.max_x = fmaxf(box.max_x, px);
+    box.min_y = fminf(box.min_y, py); box.max_y = fmaxf(box.max_y, py);
+    box.min_z = fminf(box.min_z, pz); box.max_z = fmaxf(box.max_z, pz);
+  }
+  return box;
+}
+
+void initialize_collisions() {
+  scene_collisions.clear();
+  auto add = [](const GlbModel& object, GLfloat x, GLfloat y, GLfloat z,
+                GLfloat scale, GLfloat ry = 0) {
+    scene_collisions.push_back(transform_collision_box(model_collision_bounds(object),
+        x, y, z, scale, scale, scale, 0, ry));
+  };
+  add(house_model, -14, house_ground_y, -19, kHouseScale, 90);
+  add(beetle_model, -13, beetle_ground_y, -12.3f, kBeetleScale, -90);
+  add(neymar_model, -7.9f, neymar_ground_y, -17.2f, kNeymarScale, 90);
+  add(pikachu_model, -8.1f, pikachu_ground_y, -15.8f, kPikachuScale, 90);
+  add(traffic_cone_model, 4.2f, cone_ground_y, -4.5f, kConeScale);
+  // Base real do poste: o centro do modelo inclui o braco e nao coincide com a haste.
+  CollisionBox pole = model_collision_bounds(street_lamp_model);
+  const GLfloat base_top = pole.min_y + (pole.max_y - pole.min_y) * 0.08f;
+  pole.min_x = pole.min_z = std::numeric_limits<GLfloat>::max();
+  pole.max_x = pole.max_z = std::numeric_limits<GLfloat>::lowest();
+  for (unsigned int i = 0; i < street_lamp_model.scene->mNumMeshes; ++i) {
+    const aiMesh* mesh = street_lamp_model.scene->mMeshes[i];
+    for (unsigned int j = 0; j < mesh->mNumVertices; ++j) {
+      const aiVector3D& v = mesh->mVertices[j];
+      if ((v.y - street_lamp_model.center_y) * street_lamp_model.normalization_scale > base_top) continue;
+      const GLfloat x = (v.x - street_lamp_model.center_x) * street_lamp_model.normalization_scale;
+      const GLfloat z = (v.z - street_lamp_model.center_z) * street_lamp_model.normalization_scale;
+      pole.min_x = fminf(pole.min_x, x); pole.max_x = fmaxf(pole.max_x, x);
+      pole.min_z = fminf(pole.min_z, z); pole.max_z = fmaxf(pole.max_z, z);
+    }
+  }
+  // Colisao apenas na haste dos postes; o braco elevado fica livre para passar.
+  for (const StreetLampPosition& lamp : street_lamps) {
+    scene_collisions.push_back(transform_collision_box(pole,
+        lamp.x, lamp_ground_y, lamp.z, kLampScale, kLampScale, kLampScale, 0, lamp.rotation_y));
+  }
+  // Carro fixo: a caixa e calculada uma vez, junto dos demais objetos.
+  add(model, kParkedCarPositionX, kCarRoadOffset, kParkedCarPositionZ, 1);
+}
+
+bool camera_hits_box(GLfloat x, GLfloat z, const CollisionBox& box) {
+  const GLfloat feet = camera_ground_height(x, z);
+  if (box.max_y <= feet + 0.02f || box.min_y >= feet + kCameraEyeHeight) return false;
+  const GLfloat nearest_x = std::clamp(x, box.min_x, box.max_x);
+  const GLfloat nearest_z = std::clamp(z, box.min_z, box.max_z);
+  const GLfloat dx = x - nearest_x, dz = z - nearest_z;
+  return dx * dx + dz * dz < kCameraRadius * kCameraRadius;
+}
+
+bool camera_position_is_free(GLfloat x, GLfloat z) {
+  for (const CollisionBox& box : scene_collisions) {
+    if (camera_hits_box(x, z, box)) return false;
+  }
+  return true;
+}
+
+static void mouse_read(GLFWwindow*, double mouse_x, double mouse_y) {
+  static bool initialized = false;
+  static double last_x = 0, last_y = 0;
+  if (initialized) {
+    camera_yaw += static_cast<GLfloat>(mouse_x - last_x) * kMouseSensitivity;
+    camera_pitch += static_cast<GLfloat>(last_y - mouse_y) * kMouseSensitivity;
+    camera_pitch = std::clamp(camera_pitch, -kCameraPitchLimit, kCameraPitchLimit);
+    update_camera_direction();
+  }
+  initialized = true;
+  last_x = mouse_x; last_y = mouse_y;
+}
+
+void update_camera(GLFWwindow* window) {
+  const double now = glfwGetTime();
+  const GLfloat dt = static_cast<GLfloat>(std::clamp(now - camera_last_time, 0.0, 0.1));
+  camera_last_time = now;
+  const GLfloat forward = (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS ? 1.0f : 0.0f)
+                       - (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS ? 1.0f : 0.0f);
+  const GLfloat right = (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS ? 1.0f : 0.0f)
+                     - (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS ? 1.0f : 0.0f);
+  const GLfloat yaw = camera_yaw * 3.14159265f / 180;
+  GLfloat dx = std::cos(yaw) * forward - std::sin(yaw) * right;
+  GLfloat dz = std::sin(yaw) * forward + std::cos(yaw) * right;
+  const GLfloat length = std::sqrt(dx * dx + dz * dz);
+  if (length > 0) {
+    dx *= kCameraSpeed * dt / length; dz *= kCameraSpeed * dt / length;
+  }
+  // Passos pequenos impedem atravessar objetos finos; separar X/Z permite deslizar.
+  const int steps = std::max(1, static_cast<int>(std::ceil(
+      std::sqrt(dx * dx + dz * dz) / (kCameraRadius * 0.5f))));
+  for (int i = 0; i < steps; ++i) {
+    const GLfloat x = std::clamp(camera_eye_x + dx / steps, kCameraMinimumX, kCameraMaximumX);
+    if (camera_position_is_free(x, camera_eye_z)) camera_eye_x = x;
+    const GLfloat z = std::clamp(camera_eye_z + dz / steps, kCameraMinimumZ, kCameraMaximumZ);
+    if (camera_position_is_free(camera_eye_x, z)) camera_eye_z = z;
+  }
+  camera_eye_y = camera_ground_height(camera_eye_x, camera_eye_z) + kCameraEyeHeight;
+}
+
+// ======================== FIM DO BLOCO AULA 15 ===============================
 
 void keyboard_read(GLFWwindow* window) {
   hud_text.str("");
@@ -236,135 +343,12 @@ void keyboard_read(GLFWwindow* window) {
   }
   f_key_was_pressed = f_key_is_pressed;
 
-  if (key_pressed_once(window, GLFW_KEY_B, b_key_was_pressed)) {
-    bright_mode_enabled = !bright_mode_enabled;
-  }
-  hud_text << "B: claro " << (bright_mode_enabled ? "ON" : "OFF")
-           << " | F: postes " << (street_light_enabled ? "ON " : "OFF ");
-
-  if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) {
-    camera_eye_x += camera_direction_x * kCameraSpeed;
-    camera_eye_y += camera_direction_y * kCameraSpeed;
-    camera_eye_z += camera_direction_z * kCameraSpeed;
-  }
-
-  if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) {
-    camera_eye_x -= camera_direction_x * kCameraSpeed;
-    camera_eye_y -= camera_direction_y * kCameraSpeed;
-    camera_eye_z -= camera_direction_z * kCameraSpeed;
-  }
-
-  if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) {
-    camera_eye_x += camera_right_x * kCameraSpeed;
-    camera_eye_y += camera_right_y * kCameraSpeed;
-    camera_eye_z += camera_right_z * kCameraSpeed;
-  }
-
-  if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) {
-    camera_eye_x -= camera_right_x * kCameraSpeed;
-    camera_eye_y -= camera_right_y * kCameraSpeed;
-    camera_eye_z -= camera_right_z * kCameraSpeed;
-  }
+  hud_text << "F: postes " << (street_light_enabled ? "ON " : "OFF ");
 
   if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) {
-    camera_eye_x = kDefaultCameraEyePositionX;
-    camera_eye_y = kDefaultCameraEyePositionY;
-    camera_eye_z = kDefaultCameraEyePositionZ;
-    camera_direction_x = kDefaultCameraDirectionX;
-    camera_direction_y = kDefaultCameraDirectionY;
-    camera_direction_z = kDefaultCameraDirectionZ;
-    camera_right_x = kDefaultCameraDirectionZ;
-    camera_right_y = 0;
-    camera_right_z = -kDefaultCameraDirectionX;
-    camera_yaw = kDefaultCameraYaw;
-    camera_pitch = kDefaultCameraPitch;
-
-    translate_x = translate_y = translate_z = 0;
-    rotate_x = rotate_y = rotate_z = 0;
-    scale_x = scale_y = scale_z = 1;
+    reset_camera();
 
     hud_text << "Redefinido! ";
-  }
-
-  if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS) {
-    translating = true;
-    hud_text << "Translacao ativa ";
-
-    if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) {
-      translate_x -= kTranslateIncrement;
-    }
-    if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) {
-      translate_x += kTranslateIncrement;
-    }
-    if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
-      translate_y -= kTranslateIncrement;
-    }
-    if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
-      translate_y += kTranslateIncrement;
-    }
-    if (glfwGetKey(window, GLFW_KEY_PAGE_DOWN) == GLFW_PRESS) {
-      translate_z -= kTranslateIncrement;
-    }
-    if (glfwGetKey(window, GLFW_KEY_PAGE_UP) == GLFW_PRESS) {
-      translate_z += kTranslateIncrement;
-    }
-  }
-  if (glfwGetKey(window, GLFW_KEY_T) == GLFW_RELEASE) {
-    translating = false;
-  }
-
-  if (glfwGetKey(window, GLFW_KEY_R) == GLFW_PRESS) {
-    rotating = true;
-    hud_text << "Rotacao ativa ";
-
-    if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
-      rotate_x -= kRotateIncrement;
-    }
-    if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
-      rotate_x += kRotateIncrement;
-    }
-    if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) {
-      rotate_y -= kRotateIncrement;
-    }
-    if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) {
-      rotate_y += kRotateIncrement;
-    }
-    if (glfwGetKey(window, GLFW_KEY_PAGE_DOWN) == GLFW_PRESS) {
-      rotate_z -= kRotateIncrement;
-    }
-    if (glfwGetKey(window, GLFW_KEY_PAGE_UP) == GLFW_PRESS) {
-      rotate_z += kRotateIncrement;
-    }
-  }
-  if (glfwGetKey(window, GLFW_KEY_R) == GLFW_RELEASE) {
-    rotating = false;
-  }
-
-  if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) {
-    scaling = true;
-    hud_text << "Escala ativa ";
-
-    if (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS) {
-      scale_x = fmaxf(kMinimumScale, scale_x - kScaleIncrement);
-    }
-    if (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS) {
-      scale_x += kScaleIncrement;
-    }
-    if (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS) {
-      scale_y = fmaxf(kMinimumScale, scale_y - kScaleIncrement);
-    }
-    if (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS) {
-      scale_y += kScaleIncrement;
-    }
-    if (glfwGetKey(window, GLFW_KEY_PAGE_DOWN) == GLFW_PRESS) {
-      scale_z = fmaxf(kMinimumScale, scale_z - kScaleIncrement);
-    }
-    if (glfwGetKey(window, GLFW_KEY_PAGE_UP) == GLFW_PRESS) {
-      scale_z += kScaleIncrement;
-    }
-  }
-  if (glfwGetKey(window, GLFW_KEY_E) == GLFW_RELEASE) {
-    scaling = false;
   }
 
 }
@@ -555,10 +539,8 @@ void draw(GLFWwindow* window) {
   gluLookAt(camera_eye_x, camera_eye_y, camera_eye_z, camera_center_x, camera_center_y,
             camera_center_z, kCameraUpX, kCameraUpY, kCameraUpZ);
 
-  const GLfloat normal_ambient[] = {0.20f, 0.20f, 0.20f, 1};
-  const GLfloat bright_ambient[] = {0.65f, 0.65f, 0.65f, 1};
-  glLightModelfv(GL_LIGHT_MODEL_AMBIENT,
-                bright_mode_enabled ? bright_ambient : normal_ambient);
+  const GLfloat scene_ambient[] = {0.45f, 0.45f, 0.45f, 1};
+  glLightModelfv(GL_LIGHT_MODEL_AMBIENT, scene_ambient);
   const GLfloat sky_direction[] = {-0.4f, 1, 0.3f, 0};
   glLightfv(GL_LIGHT7, GL_POSITION, sky_direction);
 
@@ -597,16 +579,7 @@ void draw(GLFWwindow* window) {
   draw_scene_object(pikachu_model, -8.1f, pikachu_ground_y, -15.8f, kPikachuScale, 0, 90);
 
   glPushMatrix();
-  glTranslatef(kParkedCarPositionX + translate_x, translate_y,
-               kParkedCarPositionZ + translate_z);
-  glRotatef(rotate_x, 1, 0, 0);
-  glRotatef(rotate_y, 0, 1, 0);
-  glRotatef(rotate_z, 0, 0, 1);
-  glScalef(scale_x, scale_y, scale_z);
-
-  glTranslatef(0, kCarRoadOffset, 0);
-  glRotatef(kModelInitialRotationX, 1, 0, 0);
-  glRotatef(kModelInitialRotationY, 0, 1, 0);
+  glTranslatef(kParkedCarPositionX, kCarRoadOffset, kParkedCarPositionZ);
 
   glEnable(GL_TEXTURE_2D);
   draw_model_display_list(model);
@@ -642,21 +615,6 @@ void draw_hud(GLFWwindow* window) {
     glColor3ub(255, 255, 255);
     draw_text(5, 5, hud_text.str());
 
-    glPointSize(20);
-    glBegin(GL_POINTS);
-    if (translating) {
-      glColor3ub(255, 0, 0);
-      glVertex2f(7.5, 20);
-    }
-    if (rotating) {
-      glColor3ub(0, 255, 0);
-      glVertex2f(17.5, 20);
-    }
-    if (scaling) {
-      glColor3ub(0, 128, 255);
-      glVertex2f(27.5, 20);
-    }
-    glEnd();
   }
   glEnable(GL_DEPTH_TEST);
 
@@ -780,13 +738,17 @@ int main() {
   }
 
   initialize_weather();
+  initialize_collisions();
+  reset_camera();
   last_time = glfwGetTime();
-  glfwSetWindowTitle(window, "Aula 13 - Nuvens e chuva animadas");
+  camera_last_time = last_time;
+  glfwSetWindowTitle(window, "Aula 15 - Camera e colisoes");
   glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
   glfwSetCursorPosCallback(window, mouse_read);
 
   while (!glfwWindowShouldClose(window)) {
     keyboard_read(window);
+    update_camera(window);
     resize_window(window);
     animate();
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

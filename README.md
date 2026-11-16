@@ -16,16 +16,31 @@ O repositorio acompanha a evolucao das atividades da disciplina e servira como b
 - Neymar em pose estatica segurando um guarda-chuva preto e Pikachu ao seu lado.
 - Nuvens em movimento e chuva animadas em funcao do tempo (Aula 13).
 - Camera controlada por teclado (`W`, `A`, `S`, `D`) e mouse.
-- Transformacoes de translacao, rotacao e escala.
+- Carro esportivo fixo no cenario, com posicao, tamanho e colisao constantes.
 - Display Lists para reutilizar os comandos de desenho dos modelos.
 
 ## Controles de iluminacao e animacao
 
 - `F`: liga ou desliga as luzes dos seis postes.
-- `B`: alterna entre iluminacao ambiente normal e modo claro.
-- Espaco: restaura a camera e as transformacoes do carro esportivo.
+- Espaco: restaura a posicao e a direcao iniciais da camera.
 
-Os postes permanecem fixos. O modo claro ajusta a iluminacao ambiente global; nao e uma lanterna ou uma luz movel.
+Os postes permanecem fixos. A iluminacao ambiente global fica fixa em 0.45, mantendo a cena clara com brilho suavizado.
+
+## Camera e colisoes - Aula 15
+
+Procure por `AULA 15 - CAMERA E COLISOES` em `main.cpp`. As configuracoes e funcoes destas duas partes ficam juntas nesse bloco. As chamadas de inicializacao, atualizacao e desenho ficam no fluxo principal do programa.
+
+A camera inicia na rua, em X = -2 e Z = -22.9 (coordenadas do mundo), com Neymar e Pikachu em primeiro plano e o Fusca a esquerda, conforme a referencia de enquadramento. O angulo horizontal inicial e 152.5 graus e o vertical e 0 graus. Espaco retorna a esse enquadramento.
+
+- `kCameraSpeed`: velocidade em unidades por segundo, independente da taxa de quadros; movimento diagonal tem a mesma velocidade.
+- `kCameraEyeHeight` e `kCameraRadius`: altura dos olhos acima do piso e raio do jogador.
+- `kCameraMinimumX/Z` e `kCameraMaximumX/Z`: limites do terreno.
+- `camera_ground_height()`: altura da rua, calcadas, caminho e gramados. Olhar para cima ou para baixo nao faz a camera voar.
+- `initialize_collisions()`: caixas simples para casa, fusca, Neymar, Pikachu, cone e hastes dos postes, calculadas na escala da cena. O guarda-chuva e as nuvens ficam livres acima do jogador.
+- O carro esportivo e fixo; sua caixa de colisao e calculada uma vez junto das demais. Os controles T, R e E foram removidos. As caixas sao aproximacoes retangulares; em objetos girados podem bloquear um pouco antes da superficie visivel.
+- `update_camera()`: passos pequenos evitam atravessar obstaculos; o movimento desliza pelas laterais. A camera acompanha os desniveis do piso diretamente, sem simulacao de gravidade ou pulo.
+
+A iluminacao usa o modelo por vertices do OpenGL, sem sombras projetadas.
 
 A chuva e as nuvens permanecem animadas continuamente, sem controles para desligar ou pausar. O ceu mantem o tom azulado de tempo chuvoso.
 
