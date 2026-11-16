@@ -21,8 +21,11 @@ O repositorio acompanha a evolucao das atividades da disciplina e servira como b
 
 ## Controles de iluminacao e animacao
 
+- `W`, `A`, `S`, `D`: caminham pelo cenario.
+- Mouse: controla a direcao do olhar.
 - `F`: liga ou desliga as luzes dos seis postes.
 - Espaco: restaura a posicao e a direcao iniciais da camera.
+- `Esc`: fecha o jogo.
 
 Os postes permanecem fixos. A iluminacao ambiente global fica fixa em 0.45, mantendo a cena clara com brilho suavizado.
 
@@ -30,17 +33,82 @@ Os postes permanecem fixos. A iluminacao ambiente global fica fixa em 0.45, mant
 
 Procure por `AULA 15 - CAMERA E COLISOES` em `main.cpp`. As configuracoes e funcoes destas duas partes ficam juntas nesse bloco. As chamadas de inicializacao, atualizacao e desenho ficam no fluxo principal do programa.
 
-A camera inicia na rua, em X = -2 e Z = -22.9 (coordenadas do mundo), com Neymar e Pikachu em primeiro plano e o Fusca a esquerda, conforme a referencia de enquadramento. O angulo horizontal inicial e 152.5 graus e o vertical e 0 graus. Espaco retorna a esse enquadramento.
+### Roteiro de apresentacao: siga as etapas 1 a 7
 
-- `kCameraSpeed`: velocidade em unidades por segundo, independente da taxa de quadros; movimento diagonal tem a mesma velocidade.
-- `kCameraEyeHeight` e `kCameraRadius`: altura dos olhos acima do piso e raio do jogador.
-- `kCameraMinimumX/Z` e `kCameraMaximumX/Z`: limites do terreno.
-- `camera_ground_height()`: altura da rua, calcadas, caminho e gramados. Olhar para cima ou para baixo nao faz a camera voar.
-- `initialize_collisions()`: caixas simples para casa, fusca, Neymar, Pikachu, cone e hastes dos postes, calculadas na escala da cena. O guarda-chuva e as nuvens ficam livres acima do jogador.
-- O carro esportivo e fixo; sua caixa de colisao e calculada uma vez junto das demais. Os controles T, R e E foram removidos. As caixas sao aproximacoes retangulares; em objetos girados podem bloquear um pouco antes da superficie visivel.
-- `update_camera()`: passos pequenos evitam atravessar obstaculos; o movimento desliza pelas laterais. A camera acompanha os desniveis do piso diretamente, sem simulacao de gravidade ou pulo.
+As etapas abaixo seguem a mesma ordem dos comentarios numerados de `main.cpp`. Procure pelo titulo de cada etapa com Ctrl+F; os numeros de linha servem como referencia desta versao e podem mudar em futuras edicoes.
 
-A iluminacao usa o modelo por vertices do OpenGL, sem sombras projetadas.
+### 1. Configuracoes - linha 137
+
+Definem velocidade, sensibilidade, altura, tamanho do jogador, limites e enquadramento inicial.
+
+| Configuracao | Valor atual | Funcao |
+| --- | --- | --- |
+| `kCameraSpeed` | `9.0f` | Velocidade em unidades do cenario por segundo |
+| `kMouseSensitivity` | `0.1f` | Sensibilidade do olhar pelo mouse |
+| `kCameraEyeHeight` | `3.0f` | Altura dos olhos acima do piso |
+| `kCameraRadius` | `0.25f` | Raio usado para representar o jogador nas colisoes |
+| `kCameraPitchLimit` | `85.0f` | Limite de inclinacao vertical em graus |
+| `kCameraMinimumX/Z`, `kCameraMaximumX/Z` | Limites do terreno, com margem para o raio | Impedem sair do cenario |
+
+A camera inicia na rua em X = -2 e Z = -22.9, olhando para Neymar e Pikachu em primeiro plano e para o Fusca a esquerda. O angulo horizontal (`yaw`) inicial e 152.5 graus e o vertical (`pitch`) e 0 graus. Os valores de posicao e altura sao unidades do cenario, sem conversao definida para metros.
+
+### 2. Altura do piso - linha 161
+
+`camera_ground_height()` recebe a posicao X/Z, identifica se ela pertence a rua, calcada, caminho da casa ou gramado e devolve a altura daquela superficie. A funcao considera `kWorldScale`, que amplia o cenario.
+
+A altura dos olhos e sempre a altura do piso somada a `kCameraEyeHeight`. Isso permite acompanhar os desniveis sem entrar no chao. A mudanca de altura e direta, sem simulacao de gravidade, pulo ou suavizacao de degraus.
+
+### 3. Olhar com o mouse - linha 171
+
+`mouse_read()` calcula quanto o mouse se moveu desde a leitura anterior. O deslocamento horizontal altera `yaw`; o vertical altera `pitch`, ambos considerando a sensibilidade configurada.
+
+`std::clamp()` limita o pitch entre -85 e +85 graus, evitando virar a visao completamente. A primeira leitura apenas registra a posicao do mouse para evitar um salto inicial.
+
+`update_camera_direction()` converte os angulos em uma direcao X/Y/Z usando seno e cosseno. Essa direcao e usada pelo `gluLookAt()` no desenho da cena.
+
+### 4. Restaurar a camera - linha 193
+
+`reset_camera()` restaura a posicao X/Z e os angulos iniciais, calcula a altura correta acima do piso e chama `update_camera_direction()` para atualizar o olhar. E usada na inicializacao e quando o jogador pressiona Espaco.
+
+### 5. Caminhada - linha 203
+
+`update_camera()` le WASD e calcula o movimento a partir do angulo horizontal da camera. W/S avancam ou recuam; A/D deslocam para os lados. A caminhada modifica apenas X/Z, por isso olhar para cima ou para baixo nao faz a camera voar.
+
+O deslocamento e calculado por velocidade multiplicada pelo tempo entre quadros (`dt`). Esse intervalo e limitado a 0.1 segundo para evitar saltos grandes depois de uma pausa. A direcao e normalizada para que andar na diagonal nao seja mais rapido.
+
+O movimento e dividido em passos pequenos. Cada passo fica dentro dos limites do terreno e so e aceito se `camera_position_is_free()` indicar que nao existe colisao. X e Z sao testados separadamente, permitindo deslizar pela lateral dos obstaculos. Ao final, a altura e atualizada com:
+
+```cpp
+camera_eye_y = camera_ground_height(camera_eye_x, camera_eye_z) + kCameraEyeHeight;
+```
+
+A declaracao antecipada de `camera_position_is_free()` avisa ao C++ que a funcao existe. Sua implementacao fica na etapa 7 para manter este roteiro de leitura.
+
+### 6. Preparar colisoes - linha 234
+
+`CollisionBox` representa uma caixa invisivel com seis limites: `min_x`, `min_y`, `min_z`, `max_x`, `max_y` e `max_z`.
+
+`model_collision_bounds()` percorre os vertices normalizados do modelo e encontra seus menores e maiores valores em cada eixo. `transform_collision_box()` aplica escala, rotacao e posicao para levar essa caixa ate a posicao do objeto no mundo, incluindo `kWorldScale`.
+
+`initialize_collisions()` registra as caixas da casa, Fusca, Neymar, Pikachu, cone, postes e carro esportivo. Nos postes, os vertices da base localizam a haste; o braco elevado fica livre para passar. Nuvens e guarda-chuva nao recebem caixas de colisao.
+
+As caixas sao calculadas uma vez, apos carregar os modelos e definir suas alturas. O carro esportivo permanece fixo, com posicao, tamanho e colisao constantes; os antigos controles T, R e E foram removidos.
+
+### 7. Testar colisoes - linha 324
+
+`camera_hits_box()` primeiro verifica se existe sobreposicao vertical entre o obstaculo e o corpo do jogador, considerado entre o piso e a altura dos olhos. Objetos inteiramente acima ou abaixo desse intervalo nao bloqueiam a passagem.
+
+Depois, considera o jogador como um circulo visto de cima. `std::clamp()` encontra o ponto da caixa mais proximo da posicao X/Z da camera. Se a distancia ao quadrado ate esse ponto for menor que `kCameraRadius * kCameraRadius`, existe colisao. A comparacao ao quadrado evita calcular uma raiz quadrada.
+
+`camera_position_is_free()` percorre todas as caixas. Retorna `false` assim que encontra uma colisao e `true` quando nenhuma bloqueia a posicao. A caminhada da etapa 5 consulta esse resultado antes de aceitar cada movimento.
+
+As caixas sao aproximacoes retangulares: nao acompanham cada detalhe das superficies e, principalmente em objetos girados, podem bloquear um pouco antes da parte visivel.
+
+### Retoques finais da cena
+
+Os ajustes de finalizacao incluem o enquadramento inicial do grupo, a iluminacao clara fixa com brilho suavizado e a retirada dos controles e indicadores de transformacao do carro. A iluminacao usa o modelo por vertices do OpenGL, sem sombras projetadas.
+
+Os modelos 3D usam Display Lists para reutilizar o desenho. Camera e colisoes sao processadas fora dessas listas. Nas nuvens, o deslocamento e aplicado antes de desenhar o modelo; a chuva e desenhada a cada quadro porque suas particulas mudam de posicao.
 
 A chuva e as nuvens permanecem animadas continuamente, sem controles para desligar ou pausar. O ceu mantem o tom azulado de tempo chuvoso.
 

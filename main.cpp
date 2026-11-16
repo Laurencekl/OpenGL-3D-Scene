@@ -130,9 +130,11 @@ void initialize_weather() {
 
 // ============================================================================
 // AULA 15 - CAMERA E COLISOES
-// Ajuste velocidade, altura e limites neste bloco. Coordenadas em unidades
-// do mundo; os objetos e o terreno sao convertidos com kWorldScale.
+// Roteiro de explicacao: siga as etapas 1 a 7, de cima para baixo.
+// Coordenadas em unidades do mundo; terreno/modelos usam kWorldScale.
 // ============================================================================
+
+// 1. CONFIGURACOES - velocidade, altura, limites e enquadramento inicial.
 const GLfloat kCameraSpeed = 9.0f;  // Unidades por segundo.
 const GLfloat kMouseSensitivity = 0.1f;
 const GLfloat kCameraEyeHeight = 3.0f;
@@ -156,11 +158,7 @@ GLfloat camera_direction_x = 0, camera_direction_y = 0, camera_direction_z = -1;
 GLfloat camera_yaw = kDefaultCameraYaw, camera_pitch = kDefaultCameraPitch;
 double camera_last_time = 0;
 
-struct CollisionBox {
-  GLfloat min_x, min_y, min_z, max_x, max_y, max_z;
-};
-std::vector<CollisionBox> scene_collisions;
-
+// 2. ALTURA DO PISO - identifica rua, calcada, caminho e gramado.
 GLfloat camera_ground_height(GLfloat world_x, GLfloat world_z) {
   const GLfloat x = world_x / kWorldScale, z = world_z / kWorldScale;
   const bool sidewalk = (x >= -7.5f && x <= -5) || (x >= 5 && x <= 7.5f);
@@ -170,6 +168,7 @@ GLfloat camera_ground_height(GLfloat world_x, GLfloat world_z) {
   return ground * kWorldScale;
 }
 
+// 3. OLHAR COM O MOUSE - yaw/pitch viram uma direcao; pitch fica limitado.
 void update_camera_direction() {
   const GLfloat yaw = camera_yaw * 3.14159265f / 180;
   const GLfloat pitch = camera_pitch * 3.14159265f / 180;
@@ -178,6 +177,20 @@ void update_camera_direction() {
   camera_direction_z = std::sin(yaw) * std::cos(pitch);
 }
 
+static void mouse_read(GLFWwindow*, double mouse_x, double mouse_y) {
+  static bool initialized = false;
+  static double last_x = 0, last_y = 0;
+  if (initialized) {
+    camera_yaw += static_cast<GLfloat>(mouse_x - last_x) * kMouseSensitivity;
+    camera_pitch += static_cast<GLfloat>(last_y - mouse_y) * kMouseSensitivity;
+    camera_pitch = std::clamp(camera_pitch, -kCameraPitchLimit, kCameraPitchLimit);
+    update_camera_direction();
+  }
+  initialized = true;
+  last_x = mouse_x; last_y = mouse_y;
+}
+
+// 4. RESTAURAR A CAMERA - usada ao iniciar e ao pressionar Espaco.
 void reset_camera() {
   camera_eye_x = kDefaultCameraEyePositionX;
   camera_eye_z = kDefaultCameraEyePositionZ;
@@ -186,6 +199,43 @@ void reset_camera() {
   camera_pitch = kDefaultCameraPitch;
   update_camera_direction();
 }
+
+// 5. CAMINHADA - WASD, tempo entre quadros, limites e altura acima do piso.
+// Declaracao antecipada: a verificacao de colisao e explicada na etapa 7.
+bool camera_position_is_free(GLfloat x, GLfloat z);
+
+void update_camera(GLFWwindow* window) {
+  const double now = glfwGetTime();
+  const GLfloat dt = static_cast<GLfloat>(std::clamp(now - camera_last_time, 0.0, 0.1));
+  camera_last_time = now;
+  const GLfloat forward = (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS ? 1.0f : 0.0f)
+                       - (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS ? 1.0f : 0.0f);
+  const GLfloat right = (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS ? 1.0f : 0.0f)
+                     - (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS ? 1.0f : 0.0f);
+  const GLfloat yaw = camera_yaw * 3.14159265f / 180;
+  GLfloat dx = std::cos(yaw) * forward - std::sin(yaw) * right;
+  GLfloat dz = std::sin(yaw) * forward + std::cos(yaw) * right;
+  const GLfloat length = std::sqrt(dx * dx + dz * dz);
+  if (length > 0) {
+    dx *= kCameraSpeed * dt / length; dz *= kCameraSpeed * dt / length;
+  }
+  // Passos pequenos impedem atravessar objetos finos; separar X/Z permite deslizar.
+  const int steps = std::max(1, static_cast<int>(std::ceil(
+      std::sqrt(dx * dx + dz * dz) / (kCameraRadius * 0.5f))));
+  for (int i = 0; i < steps; ++i) {
+    const GLfloat x = std::clamp(camera_eye_x + dx / steps, kCameraMinimumX, kCameraMaximumX);
+    if (camera_position_is_free(x, camera_eye_z)) camera_eye_x = x;
+    const GLfloat z = std::clamp(camera_eye_z + dz / steps, kCameraMinimumZ, kCameraMaximumZ);
+    if (camera_position_is_free(camera_eye_x, z)) camera_eye_z = z;
+  }
+  camera_eye_y = camera_ground_height(camera_eye_x, camera_eye_z) + kCameraEyeHeight;
+}
+
+// 6. PREPARAR COLISOES - caixas invisiveis calculadas uma vez para os objetos.
+struct CollisionBox {
+  GLfloat min_x, min_y, min_z, max_x, max_y, max_z;
+};
+std::vector<CollisionBox> scene_collisions;
 
 // Limites calculados dos vertices ja normalizados, como no desenho do modelo.
 CollisionBox model_collision_bounds(const GlbModel& object) {
@@ -271,6 +321,8 @@ void initialize_collisions() {
   add(model, kParkedCarPositionX, kCarRoadOffset, kParkedCarPositionZ, 1);
 }
 
+// 7. TESTAR COLISOES - altura do corpo e circulo do jogador contra cada caixa.
+// A etapa 5 so aceita o movimento se camera_position_is_free() retornar true.
 bool camera_hits_box(GLfloat x, GLfloat z, const CollisionBox& box) {
   const GLfloat feet = camera_ground_height(x, z);
   if (box.max_y <= feet + 0.02f || box.min_y >= feet + kCameraEyeHeight) return false;
@@ -285,46 +337,6 @@ bool camera_position_is_free(GLfloat x, GLfloat z) {
     if (camera_hits_box(x, z, box)) return false;
   }
   return true;
-}
-
-static void mouse_read(GLFWwindow*, double mouse_x, double mouse_y) {
-  static bool initialized = false;
-  static double last_x = 0, last_y = 0;
-  if (initialized) {
-    camera_yaw += static_cast<GLfloat>(mouse_x - last_x) * kMouseSensitivity;
-    camera_pitch += static_cast<GLfloat>(last_y - mouse_y) * kMouseSensitivity;
-    camera_pitch = std::clamp(camera_pitch, -kCameraPitchLimit, kCameraPitchLimit);
-    update_camera_direction();
-  }
-  initialized = true;
-  last_x = mouse_x; last_y = mouse_y;
-}
-
-void update_camera(GLFWwindow* window) {
-  const double now = glfwGetTime();
-  const GLfloat dt = static_cast<GLfloat>(std::clamp(now - camera_last_time, 0.0, 0.1));
-  camera_last_time = now;
-  const GLfloat forward = (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS ? 1.0f : 0.0f)
-                       - (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS ? 1.0f : 0.0f);
-  const GLfloat right = (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS ? 1.0f : 0.0f)
-                     - (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS ? 1.0f : 0.0f);
-  const GLfloat yaw = camera_yaw * 3.14159265f / 180;
-  GLfloat dx = std::cos(yaw) * forward - std::sin(yaw) * right;
-  GLfloat dz = std::sin(yaw) * forward + std::cos(yaw) * right;
-  const GLfloat length = std::sqrt(dx * dx + dz * dz);
-  if (length > 0) {
-    dx *= kCameraSpeed * dt / length; dz *= kCameraSpeed * dt / length;
-  }
-  // Passos pequenos impedem atravessar objetos finos; separar X/Z permite deslizar.
-  const int steps = std::max(1, static_cast<int>(std::ceil(
-      std::sqrt(dx * dx + dz * dz) / (kCameraRadius * 0.5f))));
-  for (int i = 0; i < steps; ++i) {
-    const GLfloat x = std::clamp(camera_eye_x + dx / steps, kCameraMinimumX, kCameraMaximumX);
-    if (camera_position_is_free(x, camera_eye_z)) camera_eye_x = x;
-    const GLfloat z = std::clamp(camera_eye_z + dz / steps, kCameraMinimumZ, kCameraMaximumZ);
-    if (camera_position_is_free(camera_eye_x, z)) camera_eye_z = z;
-  }
-  camera_eye_y = camera_ground_height(camera_eye_x, camera_eye_z) + kCameraEyeHeight;
 }
 
 // ======================== FIM DO BLOCO AULA 15 ===============================
