@@ -19,6 +19,10 @@ const GLfloat kWorldScale = 1.20f;
 const GLfloat kPerspectiveFieldOfViewAngle = 45;
 const GLfloat kPerspectiveNearZ = 0.1;
 const GLfloat kPerspectiveFarZ = 180;
+const GLfloat kFogStart = 30.0f;
+const GLfloat kFogEnd = 60.0f;
+const GLfloat kFogColor[] = {0.48f, 0.55f, 0.60f, 1.0f};
+const GLfloat kSkyColor[] = {0.32f, 0.53f, 0.70f, 1.0f};
 const GLfloat kSceneryBlockWidth = 44.0f;
 const GLfloat kSceneryBlockLength = 46.0f;
 GLuint scenery_display_list = 0;
@@ -595,6 +599,41 @@ void draw_neymar_with_umbrella() {
   glPopMatrix();
 }
 
+void draw_sky() {
+  glPushAttrib(GL_ENABLE_BIT | GL_DEPTH_BUFFER_BIT | GL_CURRENT_BIT | GL_LIGHTING_BIT);
+  glDisable(GL_LIGHTING);
+  glDisable(GL_TEXTURE_2D);
+  glDisable(GL_FOG);
+  glDisable(GL_DEPTH_TEST);
+  glDisable(GL_CULL_FACE);
+  glDisable(GL_BLEND);
+  glDepthMask(GL_FALSE);
+  glShadeModel(GL_SMOOTH);
+  glPushMatrix();
+  glTranslatef(camera_eye_x, camera_eye_y, camera_eye_z);
+  const GLfloat radius = kPerspectiveFarZ * 0.75f;
+  const GLfloat radians = 3.14159265f / 180;
+  for (GLint latitude = -90; latitude < 90; latitude += 10) {
+    glBegin(GL_QUAD_STRIP);
+    for (GLint longitude = 0; longitude <= 360; longitude += 15) {
+      for (GLint edge = 0; edge < 2; ++edge) {
+        const GLfloat angle = (latitude + edge * 10) * radians;
+        const GLfloat height = std::sin(angle);
+        const GLfloat blue = std::clamp(height * 3, 0.0f, 1.0f);
+        glColor3f(kFogColor[0] * (1 - blue) + kSkyColor[0] * blue,
+                  kFogColor[1] * (1 - blue) + kSkyColor[1] * blue,
+                  kFogColor[2] * (1 - blue) + kSkyColor[2] * blue);
+        glVertex3f(radius * std::cos(angle) * std::cos(longitude * radians),
+                   radius * height,
+                   radius * std::cos(angle) * std::sin(longitude * radians));
+      }
+    }
+    glEnd();
+  }
+  glPopMatrix();
+  glPopAttrib();
+}
+
 void draw(GLFWwindow* window) {
   int window_width, window_height;
   glfwGetFramebufferSize(window, &window_width, &window_height);
@@ -616,6 +655,8 @@ void draw(GLFWwindow* window) {
   GLfloat camera_center_z = (camera_eye_z + camera_direction_z);
   gluLookAt(camera_eye_x, camera_eye_y, camera_eye_z, camera_center_x, camera_center_y,
             camera_center_z, kCameraUpX, kCameraUpY, kCameraUpZ);
+
+  draw_sky();
 
   const GLfloat scene_ambient[] = {0.45f, 0.45f, 0.45f, 1};
   glLightModelfv(GL_LIGHT_MODEL_AMBIENT, scene_ambient);
@@ -672,6 +713,8 @@ void draw(GLFWwindow* window) {
 }
 
 void draw_hud(GLFWwindow* window) {
+  glPushAttrib(GL_ENABLE_BIT);
+  glDisable(GL_FOG);
   int window_width, window_height;
   glfwGetFramebufferSize(window, &window_width, &window_height);
   GLdouble aspect_ratio = (GLdouble)window_width / window_height;
@@ -701,6 +744,7 @@ void draw_hud(GLFWwindow* window) {
   glEnable(GL_DEPTH_TEST);
 
   glEnable(GL_LIGHTING);
+  glPopAttrib();
 }
 
 int main() {
@@ -748,7 +792,13 @@ int main() {
   glLightfv(GL_LIGHT7, GL_AMBIENT, light_ambient);
   glLightfv(GL_LIGHT7, GL_DIFFUSE, sky_diffuse);
   glEnable(GL_LIGHT7);
-  glClearColor(0.32f, 0.53f, 0.70f, 1.0f);
+  glClearColor(kFogColor[0], kFogColor[1], kFogColor[2], kFogColor[3]);
+  glEnable(GL_FOG);
+  glFogi(GL_FOG_MODE, GL_LINEAR);
+  glFogfv(GL_FOG_COLOR, kFogColor);
+  glFogf(GL_FOG_START, kFogStart);
+  glFogf(GL_FOG_END, kFogEnd);
+  glHint(GL_FOG_HINT, GL_NICEST);
 
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
   resize_window(window);
