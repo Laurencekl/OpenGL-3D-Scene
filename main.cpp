@@ -43,6 +43,8 @@ GlbModel umbrella_model;
 GlbModel beetle_model;
 GlbModel cloud_model;
 GlbModel pikachu_model;
+GlbModel platano_tree_model;
+GlbModel maple_tree_model;
 
 GlbTexture road_texture;
 
@@ -63,6 +65,28 @@ const GLfloat kPikachuScale = 0.16f;
 GLfloat neymar_ground_y = 0;
 GLfloat beetle_ground_y = 0;
 GLfloat pikachu_ground_y = 0;
+const GLfloat kPlatanoTreeScale = 1.20f;
+const GLfloat kMapleTreeScale = 1.10f;
+GLfloat platano_tree_ground_y = 0;
+GLfloat maple_tree_ground_y = 0;
+
+struct TreePosition {
+  GLfloat x, z;
+  bool is_platano;
+};
+
+const TreePosition trees[] = {
+  {-13, -49, true},
+  {-13, -29, false},
+  {-13, -9, true},
+  {-13, 11, false},
+  {-13, 31, true},
+  {13, -49, false},
+  {13, -29, true},
+  {13, -9, false},
+  {13, 11, true},
+  {13, 31, false}
+};
 
 const GLfloat kStreetLightHeight = 4.8f;
 
@@ -304,6 +328,30 @@ CollisionBox transform_collision_box(const CollisionBox& local,
   return box;
 }
 
+CollisionBox tree_trunk_bounds(const GlbModel& tree) {
+  const CollisionBox whole = model_collision_bounds(tree);
+  const GLfloat limit = std::numeric_limits<GLfloat>::max();
+  CollisionBox trunk{limit, whole.min_y, limit, -limit,
+                     whole.min_y + (whole.max_y - whole.min_y) * 0.4f, -limit};
+  const GLfloat base_top = whole.min_y + (whole.max_y - whole.min_y) * 0.2f;
+  for (unsigned int i = 0; i < tree.scene->mNumMeshes; ++i) {
+    const aiMesh* mesh = tree.scene->mMeshes[i];
+    aiString material;
+    tree.scene->mMaterials[mesh->mMaterialIndex]->Get(AI_MATKEY_NAME, material);
+    const std::string name = material.C_Str();
+    if (name.find("Trunk") == std::string::npos && name.find("bark") == std::string::npos) continue;
+    for (unsigned int j = 0; j < mesh->mNumVertices; ++j) {
+      const aiVector3D& v = mesh->mVertices[j];
+      if ((v.y - tree.center_y) * tree.normalization_scale > base_top) continue;
+      const GLfloat x = (v.x - tree.center_x) * tree.normalization_scale;
+      const GLfloat z = (v.z - tree.center_z) * tree.normalization_scale;
+      trunk.min_x = fminf(trunk.min_x, x); trunk.max_x = fmaxf(trunk.max_x, x);
+      trunk.min_z = fminf(trunk.min_z, z); trunk.max_z = fmaxf(trunk.max_z, z);
+    }
+  }
+  return trunk;
+}
+
 void initialize_collisions() {
   scene_collisions.clear();
   auto add = [](const GlbModel& object, GLfloat x, GLfloat y, GLfloat z,
@@ -339,6 +387,15 @@ void initialize_collisions() {
         lamp.x, lamp_ground_y, lamp.z, kLampScale, kLampScale, kLampScale, 0, lamp.rotation_y));
   }
   add(model, kParkedCarPositionX, kCarRoadOffset, kParkedCarPositionZ, 1);
+  const CollisionBox platano_trunk = tree_trunk_bounds(platano_tree_model);
+  const CollisionBox maple_trunk = tree_trunk_bounds(maple_tree_model);
+  for (const TreePosition& tree : trees) {
+    const GLfloat scale = tree.is_platano ? kPlatanoTreeScale : kMapleTreeScale;
+    const GLfloat ground_y = tree.is_platano ? platano_tree_ground_y : maple_tree_ground_y;
+    scene_collisions.push_back(transform_collision_box(
+        tree.is_platano ? platano_trunk : maple_trunk,
+        tree.x, ground_y, tree.z, scale, scale, scale));
+  }
 }
 
 bool camera_hits_box(GLfloat x, GLfloat z, const CollisionBox& box) {
@@ -548,6 +605,39 @@ void draw_scene_object(const GlbModel& scene_model, GLfloat x, GLfloat y, GLfloa
   glPopMatrix();
 }
 
+bool create_tree_display_list(GlbModel& tree) {
+  const auto original_textures = tree.textures;
+  const auto original_colors = tree.material_colors;
+  for (unsigned int i = 0; i < tree.scene->mNumMaterials; ++i) {
+    aiString material;
+    tree.scene->mMaterials[i]->Get(AI_MATKEY_NAME, material);
+    const std::string name = material.C_Str();
+    if (name == "Groundcover_Wood_Mix" || name == "grass") {
+      tree.textures.erase(i);
+      tree.material_colors[i] = aiColor4D(1, 1, 1, 0);
+    }
+  }
+  const bool success = create_model_display_list(tree);
+  tree.textures = original_textures;
+  tree.material_colors = original_colors;
+  return success;
+}
+
+void draw_trees() {
+  glPushAttrib(GL_ENABLE_BIT | GL_COLOR_BUFFER_BIT | GL_LIGHTING_BIT | GL_CURRENT_BIT);
+  glEnable(GL_ALPHA_TEST);
+  glAlphaFunc(GL_GREATER, 0.4f);
+  glDisable(GL_BLEND);
+  glDisable(GL_CULL_FACE);
+  glLightModeli(GL_LIGHT_MODEL_TWO_SIDE, GL_TRUE);
+  for (const TreePosition& tree : trees) {
+    draw_scene_object(tree.is_platano ? platano_tree_model : maple_tree_model,
+        tree.x, tree.is_platano ? platano_tree_ground_y : maple_tree_ground_y,
+        tree.z, tree.is_platano ? kPlatanoTreeScale : kMapleTreeScale);
+  }
+  glPopAttrib();
+}
+
 bool initialize_house_colors() {
   unsigned int wall_material = house_model.scene->mNumMaterials;
   for (unsigned int i = 0; i < house_model.scene->mNumMaterials; ++i) {
@@ -708,6 +798,7 @@ void draw(GLFWwindow* window) {
   draw_model_display_list(model);
   glDisable(GL_TEXTURE_2D);
   glPopMatrix();
+  draw_trees();
   draw_rain();
   glPopMatrix();
 }
@@ -823,7 +914,9 @@ int main() {
       !load_model(umbrella_model, "models/umbrella/Umbrella.obj") ||
       !load_model(beetle_model, "models/beetle/VWbeetle.obj", false) ||
       !load_model(cloud_model, "models/cloud/cloud.obj", true, true) ||
-      !load_model(pikachu_model, "models/pikachu/pikachu.obj", true, true)) {
+      !load_model(pikachu_model, "models/pikachu/pikachu.obj", true, true) ||
+      !load_model(platano_tree_model, "models/trees/platano_tree.glb") ||
+      !load_model(maple_tree_model, "models/trees/maple_tree.glb")) {
     destroy_model(model);
     destroy_model(street_lamp_model);
     destroy_model(traffic_cone_model);
@@ -833,6 +926,8 @@ int main() {
     destroy_model(beetle_model);
     destroy_model(cloud_model);
     destroy_model(pikachu_model);
+    destroy_model(platano_tree_model);
+    destroy_model(maple_tree_model);
     glfwDestroyWindow(window);
     glfwTerminate();
     return EXIT_FAILURE;
@@ -844,6 +939,8 @@ int main() {
   neymar_ground_y = model_ground_position(neymar_model, kNeymarScale, kSidewalkHeight + 0.004f);
   beetle_ground_y = model_ground_position(beetle_model, kBeetleScale, kGrassHeight);
   pikachu_ground_y = model_ground_position(pikachu_model, kPikachuScale, kGrassHeight);
+  platano_tree_ground_y = model_ground_position(platano_tree_model, kPlatanoTreeScale, kGrassHeight);
+  maple_tree_ground_y = model_ground_position(maple_tree_model, kMapleTreeScale, kGrassHeight);
   cloud_bottom_y = -model_ground_position(cloud_model, 1, 0);
   for (auto& material : cloud_model.material_colors) {
     material.second = aiColor4D(0.78f, 0.80f, 0.83f, 1);
@@ -853,7 +950,8 @@ int main() {
       !create_model_display_list(traffic_cone_model) || !create_model_display_list(house_model) ||
       !create_model_display_list(neymar_model) || !create_model_display_list(umbrella_model) ||
       !create_model_display_list(beetle_model) || !create_model_display_list(cloud_model) ||
-      !create_model_display_list(pikachu_model)) {
+      !create_model_display_list(pikachu_model) || !create_tree_display_list(platano_tree_model) ||
+      !create_tree_display_list(maple_tree_model)) {
     destroy_model(model);
     destroy_model(street_lamp_model);
     destroy_model(traffic_cone_model);
@@ -863,6 +961,8 @@ int main() {
     destroy_model(beetle_model);
     destroy_model(cloud_model);
     destroy_model(pikachu_model);
+    destroy_model(platano_tree_model);
+    destroy_model(maple_tree_model);
     if (road_texture.id) glDeleteTextures(1, &road_texture.id);
     glfwDestroyWindow(window);
     glfwTerminate();
@@ -911,6 +1011,8 @@ int main() {
   destroy_model(beetle_model);
   destroy_model(cloud_model);
   destroy_model(pikachu_model);
+  destroy_model(platano_tree_model);
+  destroy_model(maple_tree_model);
   if (road_texture.id) glDeleteTextures(1, &road_texture.id);
 
   glfwDestroyWindow(window);

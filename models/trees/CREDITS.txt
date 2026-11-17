@@ -1,0 +1,12 @@
+Platano Tree
+Autor: gelmi.com.br (https://sketchfab.com/rodrigogelmi)
+Fonte: https://sketchfab.com/3d-models/platano-tree-ef48485b7c534acc905c0d9964c5fe7c
+Licenca: CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Arquivo GLB preservado. Escala, posicionamento e recorte de transparencia das folhas aplicados no codigo.
+
+Maple tree
+Autor: atrodler (https://sketchfab.com/atrodler)
+Fonte: https://sketchfab.com/3d-models/maple-tree-4b27adcf92f644bdabf8ecc6c5bef399
+Licenca: CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+Arquivo GLB preservado. Escala, posicionamento e recorte de transparencia das folhas aplicados no codigo.
+Base quadrada e grama do arquivo Maple ocultadas apenas no desenho para integrar a arvore ao terreno.
