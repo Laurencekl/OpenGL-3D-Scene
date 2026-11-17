@@ -10,6 +10,7 @@ O repositorio acompanha a evolucao das atividades da disciplina e servira como b
 - Rua com textura de asfalto e faixas desenhadas em OpenGL.
 - Calcadas elevadas, meio-fio e gramados criados com geometria e cores.
 - Casa em modelo GLB, apoiada no gramado e com caminho ate a calcada.
+- Onze casas adicionais alinhadas em duas fileiras ao longo da rua, com seis cores de fachada e colisoes.
 - Seis postes em modelo OBJ, tres de cada lado da rua, com luzes locais.
 - Um cone de transito em modelo GLB.
 - Fusca estacionado no gramado ao lado da casa; carro esportivo na calcada oposta.
@@ -118,7 +119,13 @@ Um bloco corresponde ao piso completo do cenario original: 44 unidades de largur
 
 `kSceneryBlockWidth` e `kSceneryBlockLength` definem os deslocamentos das copias. `initialize_scenery_blocks()` prepara os oito blocos em uma Display List, reutilizando `draw_road(false)` para omitir o caminho da casa. A superficie visual passa a ocupar X entre -66 e 66 e Z entre -84 e 54, antes de aplicar `kWorldScale`. As ruas dos blocos laterais ficam em X = -44 e X = 44, e a rua central continua para frente e para tras. O plano distante da camera e de 180 unidades para mostrar o piso ampliado.
 
-Os limites de caminhada e as colisoes permanecem iguais: X entre `-22 * kWorldScale + kCameraRadius` e `22 * kWorldScale - kCameraRadius`; Z entre `-38 * kWorldScale + kCameraRadius` e `8 * kWorldScale - kCameraRadius`. O personagem continua restrito ao bloco central. Nao ha casas novas, postes adicionais ou neblina.
+Os limites de caminhada permanecem iguais: X entre `-22 * kWorldScale + kCameraRadius` e `22 * kWorldScale - kCameraRadius`; Z entre `-38 * kWorldScale + kCameraRadius` e `8 * kWorldScale - kCameraRadius`. O personagem continua restrito ao bloco central. Nao ha postes adicionais ou neblina.
+
+`background_houses` define a posicao X/Z, a rotacao e o indice de cor de onze casas adicionais. Elas formam duas fileiras paralelas a rua, em X = -14 e X = 14, alinhadas com a casa original. Cada fileira tem seis casas contando a original do lado esquerdo. Os centros das casas vizinhas ficam separados por 20 unidades ao longo de Z, deixando aproximadamente 9.8 unidades entre as construcoes. A posicao da casa original e preservada.
+
+Todas reutilizam `house_model`, `kHouseScale` e `house_ground_y`. `initialize_house_colors()` prepara seis Display Lists com paredes em tons neutros escuros de cinza quente, grafite, cinza esverdeado, areia escura, marrom acinzentado e bege escuro, usando as cores de `kHouseColors`. Somente o material das paredes recebe cor solida; telhados, base, portas e janelas mantem os materiais do modelo. A Display List da casa original permanece intacta.
+
+Algumas casas ficam dentro dos limites de caminhada. `initialize_collisions()` registra suas caixas para impedir que o jogador atravesse as construcoes, mantendo livres a rua e as calcadas. Os limites externos de movimento continuam iguais.
 
 ## Animacao da Aula 13
 

@@ -78,6 +78,36 @@ const StreetLampPosition street_lamps[] = {
 };
 const int kStreetLampCount = sizeof(street_lamps) / sizeof(street_lamps[0]);
 
+struct BackgroundHousePosition {
+  GLfloat x, z, rotation_y;
+  GLint color;
+};
+
+const BackgroundHousePosition background_houses[] = {
+  {-14, -59, 90, 0},
+  {-14, -39, 90, 2},
+  {-14, 1, 90, 3},
+  {-14, 21, 90, 4},
+  {-14, 41, 90, 5},
+  {14, -59, -90, 3},
+  {14, -39, -90, 4},
+  {14, -19, -90, 0},
+  {14, 1, -90, 1},
+  {14, 21, -90, 5},
+  {14, 41, -90, 2}
+};
+
+const aiColor4D kHouseColors[] = {
+  {0.48f, 0.47f, 0.44f, 1},
+  {0.36f, 0.39f, 0.41f, 1},
+  {0.38f, 0.41f, 0.36f, 1},
+  {0.55f, 0.49f, 0.39f, 1},
+  {0.44f, 0.39f, 0.34f, 1},
+  {0.58f, 0.56f, 0.51f, 1}
+};
+const GLint kHouseColorCount = sizeof(kHouseColors) / sizeof(kHouseColors[0]);
+GLuint house_color_display_lists[kHouseColorCount] = {};
+
 const GLfloat kHudHeight = 500;
 const GLfloat kHudWidth = 500;
 std::ostringstream hud_text;
@@ -278,6 +308,9 @@ void initialize_collisions() {
         x, y, z, scale, scale, scale, 0, ry));
   };
   add(house_model, -14, house_ground_y, -19, kHouseScale, 90);
+  for (const BackgroundHousePosition& house : background_houses) {
+    add(house_model, house.x, house_ground_y, house.z, kHouseScale, house.rotation_y);
+  }
   add(beetle_model, -13, beetle_ground_y, -12.3f, kBeetleScale, -90);
   add(neymar_model, -7.9f, neymar_ground_y, -17.2f, kNeymarScale, 90);
   add(pikachu_model, -8.1f, pikachu_ground_y, -15.8f, kPikachuScale, 90);
@@ -511,6 +544,41 @@ void draw_scene_object(const GlbModel& scene_model, GLfloat x, GLfloat y, GLfloa
   glPopMatrix();
 }
 
+bool initialize_house_colors() {
+  unsigned int wall_material = house_model.scene->mNumMaterials;
+  for (unsigned int i = 0; i < house_model.scene->mNumMaterials; ++i) {
+    aiString name;
+    house_model.scene->mMaterials[i]->Get(AI_MATKEY_NAME, name);
+    if (std::string(name.C_Str()) == "Material.013") wall_material = i;
+  }
+  const auto texture = house_model.textures.find(wall_material);
+  if (texture == house_model.textures.end()) return false;
+  const GlbTexture original_texture = texture->second;
+  const aiColor4D original_color = house_model.material_colors.at(wall_material);
+  house_model.textures.erase(wall_material);
+  bool success = true;
+  for (GLint i = 0; i < kHouseColorCount; ++i) {
+    house_color_display_lists[i] = glGenLists(1);
+    if (!house_color_display_lists[i]) { success = false; break; }
+    house_model.material_colors[wall_material] = kHouseColors[i];
+    glNewList(house_color_display_lists[i], GL_COMPILE);
+    draw_model(house_model);
+    glEndList();
+  }
+  house_model.textures[wall_material] = original_texture;
+  house_model.material_colors[wall_material] = original_color;
+  return success;
+}
+
+void draw_colored_house(const BackgroundHousePosition& house) {
+  glPushMatrix();
+  glTranslatef(house.x, house_ground_y, house.z);
+  glRotatef(house.rotation_y, 0, 1, 0);
+  glScalef(kHouseScale, kHouseScale, kHouseScale);
+  glCallList(house_color_display_lists[house.color]);
+  glPopMatrix();
+}
+
 void draw_neymar_with_umbrella() {
   glPushMatrix();
   glTranslatef(-7.9f, neymar_ground_y, -17.2f);
@@ -578,6 +646,9 @@ void draw(GLFWwindow* window) {
   glPopAttrib();
   glCallList(scenery_display_list);
   draw_road();
+  for (const BackgroundHousePosition& house : background_houses) {
+    draw_colored_house(house);
+  }
   for (const StreetLampPosition& lamp : street_lamps) {
     draw_scene_object(street_lamp_model, lamp.x, lamp_ground_y, lamp.z,
                       kLampScale, 0, lamp.rotation_y);
@@ -748,8 +819,8 @@ int main() {
     return EXIT_FAILURE;
   }
 
-  if (!initialize_scenery_blocks()) {
-    std::cerr << "Falha ao preparar blocos do cenario" << std::endl;
+  if (!initialize_house_colors() || !initialize_scenery_blocks()) {
+    std::cerr << "Falha ao preparar casas e blocos do cenario" << std::endl;
     glfwDestroyWindow(window);
     glfwTerminate();
     return EXIT_FAILURE;
@@ -778,6 +849,9 @@ int main() {
   }
 
   glDeleteLists(scenery_display_list, 1);
+  for (GLuint list : house_color_display_lists) {
+    if (list) glDeleteLists(list, 1);
+  }
   destroy_model(model);
   destroy_model(street_lamp_model);
   destroy_model(traffic_cone_model);
