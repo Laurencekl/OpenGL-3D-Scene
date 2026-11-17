@@ -31,13 +31,13 @@ Os postes permanecem fixos. A iluminacao ambiente global fica fixa em 0.45, mant
 
 ## Camera e colisoes - Aula 15
 
-Procure por `AULA 15 - CAMERA E COLISOES` em `main.cpp`. As configuracoes e funcoes destas duas partes ficam juntas nesse bloco. As chamadas de inicializacao, atualizacao e desenho ficam no fluxo principal do programa.
+As configuracoes e funcoes de camera e colisoes ficam proximas em `main.cpp`, comecando em `kCameraSpeed`. As chamadas de inicializacao, atualizacao e desenho ficam no fluxo principal do programa.
 
 ### Roteiro de apresentacao: siga as etapas 1 a 7
 
-As etapas abaixo seguem a mesma ordem dos comentarios numerados de `main.cpp`. Procure pelo titulo de cada etapa com Ctrl+F; os numeros de linha servem como referencia desta versao e podem mudar em futuras edicoes.
+As etapas abaixo seguem a ordem das funcoes de `main.cpp`. Use Ctrl+F para localizar os nomes de funcao; os comentarios explicativos foram removidos.
 
-### 1. Configuracoes - linha 137
+### 1. Configuracoes
 
 Definem velocidade, sensibilidade, altura, tamanho do jogador, limites e enquadramento inicial.
 
@@ -52,13 +52,13 @@ Definem velocidade, sensibilidade, altura, tamanho do jogador, limites e enquadr
 
 A camera inicia na rua em X = -2 e Z = -22.9, olhando para Neymar e Pikachu em primeiro plano e para o Fusca a esquerda. O angulo horizontal (`yaw`) inicial e 152.5 graus e o vertical (`pitch`) e 0 graus. Os valores de posicao e altura sao unidades do cenario, sem conversao definida para metros.
 
-### 2. Altura do piso - linha 161
+### 2. Altura do piso
 
 `camera_ground_height()` recebe a posicao X/Z, identifica se ela pertence a rua, calcada, caminho da casa ou gramado e devolve a altura daquela superficie. A funcao considera `kWorldScale`, que amplia o cenario.
 
 A altura dos olhos e sempre a altura do piso somada a `kCameraEyeHeight`. Isso permite acompanhar os desniveis sem entrar no chao. A mudanca de altura e direta, sem simulacao de gravidade, pulo ou suavizacao de degraus.
 
-### 3. Olhar com o mouse - linha 171
+### 3. Olhar com o mouse
 
 `mouse_read()` calcula quanto o mouse se moveu desde a leitura anterior. O deslocamento horizontal altera `yaw`; o vertical altera `pitch`, ambos considerando a sensibilidade configurada.
 
@@ -66,11 +66,11 @@ A altura dos olhos e sempre a altura do piso somada a `kCameraEyeHeight`. Isso p
 
 `update_camera_direction()` converte os angulos em uma direcao X/Y/Z usando seno e cosseno. Essa direcao e usada pelo `gluLookAt()` no desenho da cena.
 
-### 4. Restaurar a camera - linha 193
+### 4. Restaurar a camera
 
 `reset_camera()` restaura a posicao X/Z e os angulos iniciais, calcula a altura correta acima do piso e chama `update_camera_direction()` para atualizar o olhar. E usada na inicializacao e quando o jogador pressiona Espaco.
 
-### 5. Caminhada - linha 203
+### 5. Caminhada
 
 `update_camera()` le WASD e calcula o movimento a partir do angulo horizontal da camera. W/S avancam ou recuam; A/D deslocam para os lados. A caminhada modifica apenas X/Z, por isso olhar para cima ou para baixo nao faz a camera voar.
 
@@ -84,7 +84,7 @@ camera_eye_y = camera_ground_height(camera_eye_x, camera_eye_z) + kCameraEyeHeig
 
 A declaracao antecipada de `camera_position_is_free()` avisa ao C++ que a funcao existe. Sua implementacao fica na etapa 7 para manter este roteiro de leitura.
 
-### 6. Preparar colisoes - linha 234
+### 6. Preparar colisoes
 
 `CollisionBox` representa uma caixa invisivel com seis limites: `min_x`, `min_y`, `min_z`, `max_x`, `max_y` e `max_z`.
 
@@ -94,7 +94,7 @@ A declaracao antecipada de `camera_position_is_free()` avisa ao C++ que a funcao
 
 As caixas sao calculadas uma vez, apos carregar os modelos e definir suas alturas. O carro esportivo permanece fixo, com posicao, tamanho e colisao constantes; os antigos controles T, R e E foram removidos.
 
-### 7. Testar colisoes - linha 324
+### 7. Testar colisoes
 
 `camera_hits_box()` primeiro verifica se existe sobreposicao vertical entre o obstaculo e o corpo do jogador, considerado entre o piso e a altura dos olhos. Objetos inteiramente acima ou abaixo desse intervalo nao bloqueiam a passagem.
 
@@ -111,6 +111,14 @@ Os ajustes de finalizacao incluem o enquadramento inicial do grupo, a iluminacao
 Os modelos 3D usam Display Lists para reutilizar o desenho. Camera e colisoes sao processadas fora dessas listas. Nas nuvens, o deslocamento e aplicado antes de desenhar o modelo; a chuva e desenhada a cada quadro porque suas particulas mudam de posicao.
 
 A chuva e as nuvens permanecem animadas continuamente, sem controles para desligar ou pausar. O ceu mantem o tom azulado de tempo chuvoso.
+
+## Extensao do piso por blocos
+
+Um bloco corresponde ao piso completo do cenario original: 44 unidades de largura por 46 de comprimento. A cena tem o bloco original no centro e oito copias apenas do piso ao redor, formando uma grade de 3 por 3 blocos, incluindo os cantos. As copias contem rua, calcadas e gramado; nao repetem os personagens, os carros, a casa ou seu caminho de entrada.
+
+`kSceneryBlockWidth` e `kSceneryBlockLength` definem os deslocamentos das copias. `initialize_scenery_blocks()` prepara os oito blocos em uma Display List, reutilizando `draw_road(false)` para omitir o caminho da casa. A superficie visual passa a ocupar X entre -66 e 66 e Z entre -84 e 54, antes de aplicar `kWorldScale`. As ruas dos blocos laterais ficam em X = -44 e X = 44, e a rua central continua para frente e para tras. O plano distante da camera e de 180 unidades para mostrar o piso ampliado.
+
+Os limites de caminhada e as colisoes permanecem iguais: X entre `-22 * kWorldScale + kCameraRadius` e `22 * kWorldScale - kCameraRadius`; Z entre `-38 * kWorldScale + kCameraRadius` e `8 * kWorldScale - kCameraRadius`. O personagem continua restrito ao bloco central. Nao ha casas novas, postes adicionais ou neblina.
 
 ## Animacao da Aula 13
 

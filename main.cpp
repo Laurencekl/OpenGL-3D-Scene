@@ -18,7 +18,10 @@ const GLfloat kWorldScale = 1.20f;
 
 const GLfloat kPerspectiveFieldOfViewAngle = 45;
 const GLfloat kPerspectiveNearZ = 0.1;
-const GLfloat kPerspectiveFarZ = 100;
+const GLfloat kPerspectiveFarZ = 180;
+const GLfloat kSceneryBlockWidth = 44.0f;
+const GLfloat kSceneryBlockLength = 46.0f;
+GLuint scenery_display_list = 0;
 
 const GLfloat kParkedCarPositionX = 3.4f;
 const GLfloat kParkedCarPositionZ = -12.0f;
@@ -128,14 +131,8 @@ void initialize_weather() {
   }
 }
 
-// ============================================================================
-// AULA 15 - CAMERA E COLISOES
-// Roteiro de explicacao: siga as etapas 1 a 7, de cima para baixo.
-// Coordenadas em unidades do mundo; terreno/modelos usam kWorldScale.
-// ============================================================================
 
-// 1. CONFIGURACOES - velocidade, altura, limites e enquadramento inicial.
-const GLfloat kCameraSpeed = 9.0f;  // Unidades por segundo.
+const GLfloat kCameraSpeed = 9.0f;
 const GLfloat kMouseSensitivity = 0.1f;
 const GLfloat kCameraEyeHeight = 3.0f;
 const GLfloat kCameraRadius = 0.25f;
@@ -144,8 +141,6 @@ const GLfloat kCameraMinimumX = -22.0f * kWorldScale + kCameraRadius;
 const GLfloat kCameraMaximumX = 22.0f * kWorldScale - kCameraRadius;
 const GLfloat kCameraMinimumZ = -38.0f * kWorldScale + kCameraRadius;
 const GLfloat kCameraMaximumZ = 8.0f * kWorldScale - kCameraRadius;
-// Inicio na rua, em frente ao grupo: Neymar, Pikachu e Fusca no mesmo enquadramento.
-// X/Z = posicao; yaw = olhar para os lados; pitch = olhar para cima/baixo.
 const GLfloat kDefaultCameraEyePositionX = -2.0f;
 const GLfloat kDefaultCameraEyePositionZ = -22.9f;
 const GLfloat kDefaultCameraYaw = 152.5f;
@@ -158,7 +153,6 @@ GLfloat camera_direction_x = 0, camera_direction_y = 0, camera_direction_z = -1;
 GLfloat camera_yaw = kDefaultCameraYaw, camera_pitch = kDefaultCameraPitch;
 double camera_last_time = 0;
 
-// 2. ALTURA DO PISO - identifica rua, calcada, caminho e gramado.
 GLfloat camera_ground_height(GLfloat world_x, GLfloat world_z) {
   const GLfloat x = world_x / kWorldScale, z = world_z / kWorldScale;
   const bool sidewalk = (x >= -7.5f && x <= -5) || (x >= 5 && x <= 7.5f);
@@ -168,7 +162,6 @@ GLfloat camera_ground_height(GLfloat world_x, GLfloat world_z) {
   return ground * kWorldScale;
 }
 
-// 3. OLHAR COM O MOUSE - yaw/pitch viram uma direcao; pitch fica limitado.
 void update_camera_direction() {
   const GLfloat yaw = camera_yaw * 3.14159265f / 180;
   const GLfloat pitch = camera_pitch * 3.14159265f / 180;
@@ -190,7 +183,6 @@ static void mouse_read(GLFWwindow*, double mouse_x, double mouse_y) {
   last_x = mouse_x; last_y = mouse_y;
 }
 
-// 4. RESTAURAR A CAMERA - usada ao iniciar e ao pressionar Espaco.
 void reset_camera() {
   camera_eye_x = kDefaultCameraEyePositionX;
   camera_eye_z = kDefaultCameraEyePositionZ;
@@ -200,8 +192,6 @@ void reset_camera() {
   update_camera_direction();
 }
 
-// 5. CAMINHADA - WASD, tempo entre quadros, limites e altura acima do piso.
-// Declaracao antecipada: a verificacao de colisao e explicada na etapa 7.
 bool camera_position_is_free(GLfloat x, GLfloat z);
 
 void update_camera(GLFWwindow* window) {
@@ -219,7 +209,6 @@ void update_camera(GLFWwindow* window) {
   if (length > 0) {
     dx *= kCameraSpeed * dt / length; dz *= kCameraSpeed * dt / length;
   }
-  // Passos pequenos impedem atravessar objetos finos; separar X/Z permite deslizar.
   const int steps = std::max(1, static_cast<int>(std::ceil(
       std::sqrt(dx * dx + dz * dz) / (kCameraRadius * 0.5f))));
   for (int i = 0; i < steps; ++i) {
@@ -231,13 +220,11 @@ void update_camera(GLFWwindow* window) {
   camera_eye_y = camera_ground_height(camera_eye_x, camera_eye_z) + kCameraEyeHeight;
 }
 
-// 6. PREPARAR COLISOES - caixas invisiveis calculadas uma vez para os objetos.
 struct CollisionBox {
   GLfloat min_x, min_y, min_z, max_x, max_y, max_z;
 };
 std::vector<CollisionBox> scene_collisions;
 
-// Limites calculados dos vertices ja normalizados, como no desenho do modelo.
 CollisionBox model_collision_bounds(const GlbModel& object) {
   const GLfloat limit = std::numeric_limits<GLfloat>::max();
   CollisionBox box{limit, limit, limit, -limit, -limit, -limit};
@@ -256,7 +243,6 @@ CollisionBox model_collision_bounds(const GlbModel& object) {
   return box;
 }
 
-// Mesma ordem do OpenGL: deslocamento local, escala, Rz, Ry, Rx e translacao.
 CollisionBox transform_collision_box(const CollisionBox& local,
     GLfloat x, GLfloat y, GLfloat z, GLfloat sx, GLfloat sy, GLfloat sz,
     GLfloat rx = 0, GLfloat ry = 0, GLfloat rz = 0, GLfloat offset_y = 0) {
@@ -296,7 +282,6 @@ void initialize_collisions() {
   add(neymar_model, -7.9f, neymar_ground_y, -17.2f, kNeymarScale, 90);
   add(pikachu_model, -8.1f, pikachu_ground_y, -15.8f, kPikachuScale, 90);
   add(traffic_cone_model, 4.2f, cone_ground_y, -4.5f, kConeScale);
-  // Base real do poste: o centro do modelo inclui o braco e nao coincide com a haste.
   CollisionBox pole = model_collision_bounds(street_lamp_model);
   const GLfloat base_top = pole.min_y + (pole.max_y - pole.min_y) * 0.08f;
   pole.min_x = pole.min_z = std::numeric_limits<GLfloat>::max();
@@ -312,17 +297,13 @@ void initialize_collisions() {
       pole.min_z = fminf(pole.min_z, z); pole.max_z = fmaxf(pole.max_z, z);
     }
   }
-  // Colisao apenas na haste dos postes; o braco elevado fica livre para passar.
   for (const StreetLampPosition& lamp : street_lamps) {
     scene_collisions.push_back(transform_collision_box(pole,
         lamp.x, lamp_ground_y, lamp.z, kLampScale, kLampScale, kLampScale, 0, lamp.rotation_y));
   }
-  // Carro fixo: a caixa e calculada uma vez, junto dos demais objetos.
   add(model, kParkedCarPositionX, kCarRoadOffset, kParkedCarPositionZ, 1);
 }
 
-// 7. TESTAR COLISOES - altura do corpo e circulo do jogador contra cada caixa.
-// A etapa 5 so aceita o movimento se camera_position_is_free() retornar true.
 bool camera_hits_box(GLfloat x, GLfloat z, const CollisionBox& box) {
   const GLfloat feet = camera_ground_height(x, z);
   if (box.max_y <= feet + 0.02f || box.min_y >= feet + kCameraEyeHeight) return false;
@@ -339,7 +320,6 @@ bool camera_position_is_free(GLfloat x, GLfloat z) {
   return true;
 }
 
-// ======================== FIM DO BLOCO AULA 15 ===============================
 
 void keyboard_read(GLFWwindow* window) {
   hud_text.str("");
@@ -453,7 +433,7 @@ void draw_grass(GLfloat left, GLfloat right) {
   glEnd();
 }
 
-void draw_road() {
+void draw_road(bool draw_house_path = true) {
   glEnable(GL_TEXTURE_2D);
   glBindTexture(GL_TEXTURE_2D, road_texture.id);
   glColor3ub(255, 255, 255);
@@ -482,12 +462,30 @@ void draw_road() {
   draw_sidewalk(5.0f, 7.5f);
   draw_grass(-22.0f, -7.5f);
   draw_grass(7.5f, 22.0f);
+  if (!draw_house_path) return;
   glColor3f(0.67f, 0.65f, 0.60f);
   glBegin(GL_QUADS);
   for (GLfloat x = -14; x < -7.5f; x += 0.5f) {
     draw_ground_tile(x, -18.0f, x + 0.5f, -16.4f, kSidewalkHeight + 0.004f);
   }
   glEnd();
+}
+
+bool initialize_scenery_blocks() {
+  scenery_display_list = glGenLists(1);
+  if (!scenery_display_list) return false;
+  glNewList(scenery_display_list, GL_COMPILE);
+  for (GLint x = -1; x <= 1; ++x) {
+    for (GLint z = -1; z <= 1; ++z) {
+      if (x == 0 && z == 0) continue;
+      glPushMatrix();
+      glTranslatef(x * kSceneryBlockWidth, 0, z * kSceneryBlockLength);
+      draw_road(false);
+      glPopMatrix();
+    }
+  }
+  glEndList();
+  return true;
 }
 
 GLfloat model_ground_position(const GlbModel& scene_model, GLfloat scale, GLfloat ground) {
@@ -578,6 +576,7 @@ void draw(GLFWwindow* window) {
     draw_scene_object(cloud_model, cloud.x, cloud.y, cloud.z, cloud.scale);
   }
   glPopAttrib();
+  glCallList(scenery_display_list);
   draw_road();
   for (const StreetLampPosition& lamp : street_lamps) {
     draw_scene_object(street_lamp_model, lamp.x, lamp_ground_y, lamp.z,
@@ -749,6 +748,13 @@ int main() {
     return EXIT_FAILURE;
   }
 
+  if (!initialize_scenery_blocks()) {
+    std::cerr << "Falha ao preparar blocos do cenario" << std::endl;
+    glfwDestroyWindow(window);
+    glfwTerminate();
+    return EXIT_FAILURE;
+  }
+
   initialize_weather();
   initialize_collisions();
   reset_camera();
@@ -771,6 +777,7 @@ int main() {
     glfwPollEvents();
   }
 
+  glDeleteLists(scenery_display_list, 1);
   destroy_model(model);
   destroy_model(street_lamp_model);
   destroy_model(traffic_cone_model);
