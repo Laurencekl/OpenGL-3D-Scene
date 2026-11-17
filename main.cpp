@@ -27,7 +27,7 @@ const GLfloat kSceneryBlockWidth = 44.0f;
 const GLfloat kSceneryBlockLength = 46.0f;
 GLuint scenery_display_list = 0;
 
-const GLfloat kParkedCarPositionX = 3.4f;
+const GLfloat kParkedCarPositionX = -3.4f;
 const GLfloat kParkedCarPositionZ = -12.0f;
 
 bool street_light_enabled = false;
@@ -36,7 +36,6 @@ bool f_key_was_pressed = false;
 GlbModel model;
 
 GlbModel street_lamp_model;
-GlbModel traffic_cone_model;
 GlbModel house_model;
 GlbModel neymar_model;
 GlbModel umbrella_model;
@@ -50,14 +49,12 @@ GlbTexture road_texture;
 
 const GLfloat kRoadHeight = -0.65f;
 const GLfloat kLampScale = 0.85f;
-const GLfloat kConeScale = 0.16f;
 const GLfloat kHouseScale = 1.7f;
-const GLfloat kCarRoadOffset = 0.40f;
+GLfloat car_ground_y = 0;
 const GLfloat kSidewalkHeight = kRoadHeight + 0.18f;
 const GLfloat kGrassHeight = kRoadHeight + 0.14f;
 GLfloat house_ground_y = 0;
 GLfloat lamp_ground_y = 0;
-GLfloat cone_ground_y = 0;
 const GLfloat kNeymarScale = 0.42f;
 const GLfloat kUmbrellaScale = 0.80f;
 const GLfloat kBeetleScale = 0.85f;
@@ -88,8 +85,6 @@ const TreePosition trees[] = {
   {13, 31, false}
 };
 
-const GLfloat kStreetLightHeight = 4.8f;
-
 struct StreetLampPosition {
   GLfloat x;
   GLfloat z;
@@ -97,14 +92,27 @@ struct StreetLampPosition {
 };
 
 const StreetLampPosition street_lamps[] = {
-  {5.9f, -11.5f, 0},
-  {-5.9f, -11.5f, 180},
-  {5.9f, 1.0f, 0},
-  {-5.9f, 1.0f, 180},
-  {5.9f, -25.0f, 0},
-  {-5.9f, -25.0f, 180}
+  {6.5f, -43.0f, 90},
+  {-6.5f, -43.0f, -90},
+  {6.5f, -27.0f, 90},
+  {-6.5f, -27.0f, -90},
+  {6.5f, -11.0f, 90},
+  {-6.5f, -11.0f, -90},
+  {6.5f, 5.0f, 90},
+  {-6.5f, 5.0f, -90},
+  {6.5f, 21.0f, 90},
+  {-6.5f, 21.0f, -90},
+  {6.5f, 37.0f, 90},
+  {-6.5f, 37.0f, -90}
 };
 const int kStreetLampCount = sizeof(street_lamps) / sizeof(street_lamps[0]);
+const int kStreetLightCount = 6;
+GLint active_street_lamps[kStreetLightCount] = {};
+
+struct StreetLampFixture {
+  GLfloat x, y, z, half_width, half_length;
+};
+StreetLampFixture lamp_fixtures[2] = {};
 
 struct BackgroundHousePosition {
   GLfloat x, z, rotation_y;
@@ -135,6 +143,8 @@ const aiColor4D kHouseColors[] = {
 };
 const GLint kHouseColorCount = sizeof(kHouseColors) / sizeof(kHouseColors[0]);
 GLuint house_color_display_lists[kHouseColorCount] = {};
+GLuint main_house_windows_display_list = 0;
+const GLfloat kMainHouseWindowGlow[] = {0.16f, 0.11f, 0.045f, 1.0f};
 
 const GLfloat kHudHeight = 500;
 const GLfloat kHudWidth = 500;
@@ -366,7 +376,6 @@ void initialize_collisions() {
   add(beetle_model, -13, beetle_ground_y, -12.3f, kBeetleScale, -90);
   add(neymar_model, -7.9f, neymar_ground_y, -17.2f, kNeymarScale, 90);
   add(pikachu_model, -8.1f, pikachu_ground_y, -15.8f, kPikachuScale, 90);
-  add(traffic_cone_model, 4.2f, cone_ground_y, -4.5f, kConeScale);
   CollisionBox pole = model_collision_bounds(street_lamp_model);
   const GLfloat base_top = pole.min_y + (pole.max_y - pole.min_y) * 0.08f;
   pole.min_x = pole.min_z = std::numeric_limits<GLfloat>::max();
@@ -386,7 +395,7 @@ void initialize_collisions() {
     scene_collisions.push_back(transform_collision_box(pole,
         lamp.x, lamp_ground_y, lamp.z, kLampScale, kLampScale, kLampScale, 0, lamp.rotation_y));
   }
-  add(model, kParkedCarPositionX, kCarRoadOffset, kParkedCarPositionZ, 1);
+  add(model, kParkedCarPositionX, car_ground_y, kParkedCarPositionZ, 1);
   const CollisionBox platano_trunk = tree_trunk_bounds(platano_tree_model);
   const CollisionBox maple_trunk = tree_trunk_bounds(maple_tree_model);
   for (const TreePosition& tree : trees) {
@@ -593,6 +602,38 @@ GLfloat model_ground_position(const GlbModel& scene_model, GLfloat scale, GLfloa
   return ground - (minimum_y - scene_model.center_y) * scene_model.normalization_scale * scale;
 }
 
+bool initialize_street_lights() {
+  const GLfloat limit = std::numeric_limits<GLfloat>::max();
+  CollisionBox glass[2] = {
+    {limit, limit, limit, -limit, -limit, -limit},
+    {limit, limit, limit, -limit, -limit, -limit}
+  };
+  for (unsigned int i = 0; i < street_lamp_model.scene->mNumMeshes; ++i) {
+    const aiMesh* mesh = street_lamp_model.scene->mMeshes[i];
+    aiString material;
+    street_lamp_model.scene->mMaterials[mesh->mMaterialIndex]->Get(AI_MATKEY_NAME, material);
+    if (std::string(material.C_Str()) != "Street_Light_Glass") continue;
+    for (unsigned int j = 0; j < mesh->mNumVertices; ++j) {
+      const aiVector3D& v = mesh->mVertices[j];
+      const GLfloat x = (v.x - street_lamp_model.center_x) * street_lamp_model.normalization_scale;
+      const GLfloat y = (v.y - street_lamp_model.center_y) * street_lamp_model.normalization_scale;
+      const GLfloat z = (v.z - street_lamp_model.center_z) * street_lamp_model.normalization_scale;
+      CollisionBox& box = glass[z < 0 ? 0 : 1];
+      box.min_x = fminf(box.min_x, x); box.max_x = fmaxf(box.max_x, x);
+      box.min_y = fminf(box.min_y, y); box.max_y = fmaxf(box.max_y, y);
+      box.min_z = fminf(box.min_z, z); box.max_z = fmaxf(box.max_z, z);
+    }
+  }
+  for (GLint i = 0; i < 2; ++i) {
+    const CollisionBox& box = glass[i];
+    if (box.min_x > box.max_x || box.min_z > box.max_z) return false;
+    lamp_fixtures[i] = {(box.min_x + box.max_x) * 0.5f, box.min_y - 0.004f,
+        (box.min_z + box.max_z) * 0.5f,
+        (box.max_x - box.min_x) * 0.5f, (box.max_z - box.min_z) * 0.5f};
+  }
+  return true;
+}
+
 void draw_scene_object(const GlbModel& scene_model, GLfloat x, GLfloat y, GLfloat z,
                        GLfloat scale, GLfloat rotation_x = 0, GLfloat rotation_y = 0) {
   glPushMatrix();
@@ -603,6 +644,64 @@ void draw_scene_object(const GlbModel& scene_model, GLfloat x, GLfloat y, GLfloa
 
   draw_model_display_list(scene_model);
   glPopMatrix();
+}
+
+void draw_street_lamp(const StreetLampPosition& lamp) {
+  draw_scene_object(street_lamp_model, lamp.x, lamp_ground_y, lamp.z,
+                    kLampScale, 0, lamp.rotation_y);
+  if (!street_light_enabled) return;
+  glPushAttrib(GL_ENABLE_BIT | GL_CURRENT_BIT);
+  glDisable(GL_LIGHTING);
+  glDisable(GL_TEXTURE_2D);
+  glDisable(GL_CULL_FACE);
+  glPushMatrix();
+  glTranslatef(lamp.x, lamp_ground_y, lamp.z);
+  glRotatef(lamp.rotation_y, 0, 1, 0);
+  glScalef(kLampScale, kLampScale, kLampScale);
+  glColor3f(1.0f, 0.88f, 0.58f);
+  glBegin(GL_QUADS);
+  for (const StreetLampFixture& bulb : lamp_fixtures) {
+    glVertex3f(bulb.x - bulb.half_width, bulb.y, bulb.z - bulb.half_length);
+    glVertex3f(bulb.x + bulb.half_width, bulb.y, bulb.z - bulb.half_length);
+    glVertex3f(bulb.x + bulb.half_width, bulb.y, bulb.z + bulb.half_length);
+    glVertex3f(bulb.x - bulb.half_width, bulb.y, bulb.z + bulb.half_length);
+  }
+  glEnd();
+  glPopMatrix();
+  glPopAttrib();
+}
+
+void update_street_lights() {
+  GLint nearest[kStreetLampCount];
+  for (GLint i = 0; i < kStreetLampCount; ++i) nearest[i] = i;
+  std::sort(nearest, nearest + kStreetLampCount, [](GLint a, GLint b) {
+    const GLfloat ax = street_lamps[a].x * kWorldScale - camera_eye_x;
+    const GLfloat az = street_lamps[a].z * kWorldScale - camera_eye_z;
+    const GLfloat bx = street_lamps[b].x * kWorldScale - camera_eye_x;
+    const GLfloat bz = street_lamps[b].z * kWorldScale - camera_eye_z;
+    return ax * ax + az * az < bx * bx + bz * bz;
+  });
+  for (GLint i = 0; i < kStreetLightCount; ++i) active_street_lamps[i] = nearest[i];
+  for (int i = 0; i < kStreetLightCount; ++i) {
+    const GLenum light = GL_LIGHT0 + i;
+    if (street_light_enabled) {
+      glEnable(light);
+      const StreetLampPosition& lamp = street_lamps[active_street_lamps[i]];
+      const StreetLampFixture& bulb = lamp_fixtures[0];
+      const GLfloat position[] = {bulb.x, bulb.y - 0.02f, bulb.z, 1.0f};
+      const GLfloat direction[] = {0, -1, -0.25f};
+      glPushMatrix();
+      glTranslatef(lamp.x, lamp_ground_y, lamp.z);
+      glRotatef(lamp.rotation_y, 0, 1, 0);
+      glScalef(kLampScale, kLampScale, kLampScale);
+      glLightfv(light, GL_POSITION, position);
+      glLightfv(light, GL_SPOT_DIRECTION, direction);
+      glPopMatrix();
+    } else {
+      glDisable(light);
+    }
+  }
+
 }
 
 bool create_tree_display_list(GlbModel& tree) {
@@ -662,6 +761,47 @@ bool initialize_house_colors() {
   house_model.textures[wall_material] = original_texture;
   house_model.material_colors[wall_material] = original_color;
   return success;
+}
+
+bool initialize_main_house_windows() {
+  std::vector<unsigned int> window_meshes;
+  for (unsigned int i = 0; i < house_model.scene->mNumMeshes; ++i) {
+    const aiMesh* mesh = house_model.scene->mMeshes[i];
+    aiString material;
+    house_model.scene->mMaterials[mesh->mMaterialIndex]->Get(AI_MATKEY_NAME, material);
+    if (std::string(material.C_Str()) == "Glass.003") window_meshes.push_back(i);
+  }
+  if (window_meshes.empty()) return false;
+  aiNode windows;
+  windows.mNumMeshes = static_cast<unsigned int>(window_meshes.size());
+  windows.mMeshes = new unsigned int[windows.mNumMeshes];
+  std::copy(window_meshes.begin(), window_meshes.end(), windows.mMeshes);
+  main_house_windows_display_list = glGenLists(1);
+  if (!main_house_windows_display_list) return false;
+  glNewList(main_house_windows_display_list, GL_COMPILE);
+  glPushAttrib(GL_ENABLE_BIT | GL_LIGHTING_BIT | GL_CURRENT_BIT | GL_POLYGON_BIT);
+  glEnable(GL_POLYGON_OFFSET_FILL);
+  glPolygonOffset(-1, -1);
+  glMaterialfv(GL_FRONT_AND_BACK, GL_EMISSION, kMainHouseWindowGlow);
+  glPushMatrix();
+  glScalef(house_model.normalization_scale, house_model.normalization_scale,
+           house_model.normalization_scale);
+  glTranslatef(-house_model.center_x, -house_model.center_y, -house_model.center_z);
+  draw_model(house_model, &windows);
+  glPopMatrix();
+  glPopAttrib();
+  glEndList();
+  return true;
+}
+
+void draw_main_house() {
+  draw_scene_object(house_model, -14, house_ground_y, -19, kHouseScale, 0, 90);
+  glPushMatrix();
+  glTranslatef(-14, house_ground_y, -19);
+  glRotatef(90, 0, 1, 0);
+  glScalef(kHouseScale, kHouseScale, kHouseScale);
+  glCallList(main_house_windows_display_list);
+  glPopMatrix();
 }
 
 void draw_colored_house(const BackgroundHousePosition& house) {
@@ -756,17 +896,7 @@ void draw(GLFWwindow* window) {
   glPushMatrix();
   glScalef(kWorldScale, kWorldScale, kWorldScale);
 
-  for (int i = 0; i < kStreetLampCount; ++i) {
-    const GLenum light = GL_LIGHT0 + i;
-    if (street_light_enabled) {
-      glEnable(light);
-      GLfloat position[] = {street_lamps[i].x, kStreetLightHeight,
-                            street_lamps[i].z, 1.0f};
-      glLightfv(light, GL_POSITION, position);
-    } else {
-      glDisable(light);
-    }
-  }
+  update_street_lights();
 
   glPushAttrib(GL_LIGHTING_BIT);
   const GLfloat cloud_emission[] = {0.18f, 0.20f, 0.22f, 1};
@@ -781,18 +911,16 @@ void draw(GLFWwindow* window) {
     draw_colored_house(house);
   }
   for (const StreetLampPosition& lamp : street_lamps) {
-    draw_scene_object(street_lamp_model, lamp.x, lamp_ground_y, lamp.z,
-                      kLampScale, 0, lamp.rotation_y);
+    draw_street_lamp(lamp);
   }
-  draw_scene_object(traffic_cone_model, 4.2f, cone_ground_y, -4.5f, kConeScale);
-  draw_scene_object(house_model, -14.0f, house_ground_y, -19.0f, kHouseScale, 0, 90);
+  draw_main_house();
   draw_scene_object(beetle_model, -13.0f, beetle_ground_y, -12.3f, kBeetleScale, 0, -90);
 
   draw_neymar_with_umbrella();
   draw_scene_object(pikachu_model, -8.1f, pikachu_ground_y, -15.8f, kPikachuScale, 0, 90);
 
   glPushMatrix();
-  glTranslatef(kParkedCarPositionX, kCarRoadOffset, kParkedCarPositionZ);
+  glTranslatef(kParkedCarPositionX, car_ground_y, kParkedCarPositionZ);
 
   glEnable(GL_TEXTURE_2D);
   draw_model_display_list(model);
@@ -870,14 +998,16 @@ int main() {
   glEnable(GL_NORMALIZE);
 
   GLfloat light_ambient[] = {0.0f, 0.0f, 0.0f, 1.0f};
-  GLfloat light_diffuse[] = {1.15f, 1.00f, 0.78f, 1.0f};
-  for (int i = 0; i < kStreetLampCount; ++i) {
+  GLfloat light_diffuse[] = {1.15f, 1.02f, 0.78f, 1.0f};
+  for (int i = 0; i < kStreetLightCount; ++i) {
     const GLenum light = GL_LIGHT0 + i;
     glLightfv(light, GL_AMBIENT, light_ambient);
     glLightfv(light, GL_DIFFUSE, light_diffuse);
+    glLightf(light, GL_SPOT_CUTOFF, 80.0f);
+    glLightf(light, GL_SPOT_EXPONENT, 1.0f);
     glLightf(light, GL_CONSTANT_ATTENUATION, 1.0f);
-    glLightf(light, GL_LINEAR_ATTENUATION, 0.10f / kWorldScale);
-    glLightf(light, GL_QUADRATIC_ATTENUATION, 0.045f / (kWorldScale * kWorldScale));
+    glLightf(light, GL_LINEAR_ATTENUATION, 0.06f / kWorldScale);
+    glLightf(light, GL_QUADRATIC_ATTENUATION, 0.022f / (kWorldScale * kWorldScale));
   }
   const GLfloat sky_diffuse[] = {0.40f, 0.43f, 0.48f, 1};
   glLightfv(GL_LIGHT7, GL_AMBIENT, light_ambient);
@@ -908,7 +1038,6 @@ int main() {
 
   if (!load_texture_external(road_texture, "textures/aerial_asphalt_01_diff_1k.jpg") ||
       !load_model(street_lamp_model, "models/street_lamp/Street_Light_A_02.obj") ||
-      !load_model(traffic_cone_model, "models/traffic_cone.glb") ||
       !load_model(house_model, "models/house.glb") ||
       !load_model(neymar_model, "models/neymar_holding.glb") ||
       !load_model(umbrella_model, "models/umbrella/Umbrella.obj") ||
@@ -919,7 +1048,6 @@ int main() {
       !load_model(maple_tree_model, "models/trees/maple_tree.glb")) {
     destroy_model(model);
     destroy_model(street_lamp_model);
-    destroy_model(traffic_cone_model);
     destroy_model(house_model);
     destroy_model(neymar_model);
     destroy_model(umbrella_model);
@@ -933,9 +1061,9 @@ int main() {
     return EXIT_FAILURE;
   }
 
+  car_ground_y = model_ground_position(model, 1, kRoadHeight);
   house_ground_y = model_ground_position(house_model, kHouseScale, kGrassHeight);
   lamp_ground_y = model_ground_position(street_lamp_model, kLampScale, kSidewalkHeight);
-  cone_ground_y = model_ground_position(traffic_cone_model, kConeScale, kRoadHeight);
   neymar_ground_y = model_ground_position(neymar_model, kNeymarScale, kSidewalkHeight + 0.004f);
   beetle_ground_y = model_ground_position(beetle_model, kBeetleScale, kGrassHeight);
   pikachu_ground_y = model_ground_position(pikachu_model, kPikachuScale, kGrassHeight);
@@ -947,14 +1075,13 @@ int main() {
   }
 
   if (!create_model_display_list(model) || !create_model_display_list(street_lamp_model) ||
-      !create_model_display_list(traffic_cone_model) || !create_model_display_list(house_model) ||
+      !create_model_display_list(house_model) ||
       !create_model_display_list(neymar_model) || !create_model_display_list(umbrella_model) ||
       !create_model_display_list(beetle_model) || !create_model_display_list(cloud_model) ||
       !create_model_display_list(pikachu_model) || !create_tree_display_list(platano_tree_model) ||
       !create_tree_display_list(maple_tree_model)) {
     destroy_model(model);
     destroy_model(street_lamp_model);
-    destroy_model(traffic_cone_model);
     destroy_model(house_model);
     destroy_model(neymar_model);
     destroy_model(umbrella_model);
@@ -969,8 +1096,9 @@ int main() {
     return EXIT_FAILURE;
   }
 
-  if (!initialize_house_colors() || !initialize_scenery_blocks()) {
-    std::cerr << "Falha ao preparar casas e blocos do cenario" << std::endl;
+  if (!initialize_street_lights() || !initialize_house_colors() ||
+      !initialize_main_house_windows() || !initialize_scenery_blocks()) {
+    std::cerr << "Falha ao preparar postes, casas e blocos do cenario" << std::endl;
     glfwDestroyWindow(window);
     glfwTerminate();
     return EXIT_FAILURE;
@@ -999,12 +1127,12 @@ int main() {
   }
 
   glDeleteLists(scenery_display_list, 1);
+  glDeleteLists(main_house_windows_display_list, 1);
   for (GLuint list : house_color_display_lists) {
     if (list) glDeleteLists(list, 1);
   }
   destroy_model(model);
   destroy_model(street_lamp_model);
-  destroy_model(traffic_cone_model);
   destroy_model(house_model);
   destroy_model(neymar_model);
   destroy_model(umbrella_model);
