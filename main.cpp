@@ -50,15 +50,21 @@ GlbTexture road_texture;
 const GLfloat kRoadHeight = -0.65f;
 const GLfloat kLampScale = 0.85f;
 const GLfloat kHouseScale = 1.7f;
+const GLfloat kMainHousePositionX = -15.5f;
+const GLfloat kMainHousePositionZ = -19.0f;
+const GLfloat kMainHousePathMinX = kMainHousePositionX + 2.0f;
+const GLfloat kMainHousePathMaxX = -7.5f;
+const GLfloat kMainHousePathMinZ = -20.03f;
+const GLfloat kMainHousePathMaxZ = -17.39f;
 GLfloat car_ground_y = 0;
 const GLfloat kSidewalkHeight = kRoadHeight + 0.18f;
 const GLfloat kGrassHeight = kRoadHeight + 0.14f;
 GLfloat house_ground_y = 0;
 GLfloat lamp_ground_y = 0;
-const GLfloat kNeymarScale = 0.42f;
+const GLfloat kNeymarScale = 0.441f;
 const GLfloat kUmbrellaScale = 0.80f;
 const GLfloat kBeetleScale = 0.85f;
-const GLfloat kPikachuScale = 0.16f;
+const GLfloat kPikachuScale = 0.168f;
 GLfloat neymar_ground_y = 0;
 GLfloat beetle_ground_y = 0;
 GLfloat pikachu_ground_y = 0;
@@ -224,7 +230,8 @@ double camera_last_time = 0;
 GLfloat camera_ground_height(GLfloat world_x, GLfloat world_z) {
   const GLfloat x = world_x / kWorldScale, z = world_z / kWorldScale;
   const bool sidewalk = (x >= -7.5f && x <= -5) || (x >= 5 && x <= 7.5f);
-  const bool house_path = x >= -14 && x <= -7.5f && z >= -18 && z <= -16.4f;
+  const bool house_path = x >= kMainHousePathMinX && x <= kMainHousePathMaxX &&
+                          z >= kMainHousePathMinZ && z <= kMainHousePathMaxZ;
   const GLfloat ground = (sidewalk || house_path) ? kSidewalkHeight :
                          (x > -5 && x < 5 ? kRoadHeight : kGrassHeight);
   return ground * kWorldScale;
@@ -369,7 +376,7 @@ void initialize_collisions() {
     scene_collisions.push_back(transform_collision_box(model_collision_bounds(object),
         x, y, z, scale, scale, scale, 0, ry));
   };
-  add(house_model, -14, house_ground_y, -19, kHouseScale, 90);
+  add(house_model, kMainHousePositionX, house_ground_y, kMainHousePositionZ, kHouseScale, 90);
   for (const BackgroundHousePosition& house : background_houses) {
     add(house_model, house.x, house_ground_y, house.z, kHouseScale, house.rotation_y);
   }
@@ -568,9 +575,8 @@ void draw_road(bool draw_house_path = true) {
   if (!draw_house_path) return;
   glColor3f(0.67f, 0.65f, 0.60f);
   glBegin(GL_QUADS);
-  for (GLfloat x = -14; x < -7.5f; x += 0.5f) {
-    draw_ground_tile(x, -18.0f, x + 0.5f, -16.4f, kSidewalkHeight + 0.004f);
-  }
+  draw_ground_tile(kMainHousePathMinX, kMainHousePathMinZ,
+                   kMainHousePathMaxX, kMainHousePathMaxZ, kSidewalkHeight + 0.004f);
   glEnd();
 }
 
@@ -795,9 +801,10 @@ bool initialize_main_house_windows() {
 }
 
 void draw_main_house() {
-  draw_scene_object(house_model, -14, house_ground_y, -19, kHouseScale, 0, 90);
+  draw_scene_object(house_model, kMainHousePositionX, house_ground_y,
+                    kMainHousePositionZ, kHouseScale, 0, 90);
   glPushMatrix();
-  glTranslatef(-14, house_ground_y, -19);
+  glTranslatef(kMainHousePositionX, house_ground_y, kMainHousePositionZ);
   glRotatef(90, 0, 1, 0);
   glScalef(kHouseScale, kHouseScale, kHouseScale);
   glCallList(main_house_windows_display_list);
@@ -1064,7 +1071,7 @@ int main() {
   car_ground_y = model_ground_position(model, 1, kRoadHeight);
   house_ground_y = model_ground_position(house_model, kHouseScale, kGrassHeight);
   lamp_ground_y = model_ground_position(street_lamp_model, kLampScale, kSidewalkHeight);
-  neymar_ground_y = model_ground_position(neymar_model, kNeymarScale, kSidewalkHeight + 0.004f);
+  neymar_ground_y = model_ground_position(neymar_model, kNeymarScale, kGrassHeight);
   beetle_ground_y = model_ground_position(beetle_model, kBeetleScale, kGrassHeight);
   pikachu_ground_y = model_ground_position(pikachu_model, kPikachuScale, kGrassHeight);
   platano_tree_ground_y = model_ground_position(platano_tree_model, kPlatanoTreeScale, kGrassHeight);
