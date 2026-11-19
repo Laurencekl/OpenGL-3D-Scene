@@ -27,13 +27,10 @@ const GLfloat kSceneryBlockWidth = 44.0f;
 const GLfloat kSceneryBlockLength = 46.0f;
 GLuint scenery_display_list = 0;
 
-const GLfloat kParkedCarPositionX = -3.4f;
-const GLfloat kParkedCarPositionZ = -12.0f;
 
 bool street_light_enabled = false;
 bool f_key_was_pressed = false;
 
-GlbModel model;
 
 GlbModel street_lamp_model;
 GlbModel house_model;
@@ -56,7 +53,6 @@ const GLfloat kMainHousePathMinX = kMainHousePositionX + 2.0f;
 const GLfloat kMainHousePathMaxX = -7.5f;
 const GLfloat kMainHousePathMinZ = -20.03f;
 const GLfloat kMainHousePathMaxZ = -17.39f;
-GLfloat car_ground_y = 0;
 const GLfloat kSidewalkHeight = kRoadHeight + 0.18f;
 const GLfloat kGrassHeight = kRoadHeight + 0.14f;
 GLfloat house_ground_y = 0;
@@ -215,10 +211,10 @@ const GLfloat kCameraMinimumX = -22.0f * kWorldScale + kCameraRadius;
 const GLfloat kCameraMaximumX = 22.0f * kWorldScale - kCameraRadius;
 const GLfloat kCameraMinimumZ = -38.0f * kWorldScale + kCameraRadius;
 const GLfloat kCameraMaximumZ = 8.0f * kWorldScale - kCameraRadius;
-const GLfloat kDefaultCameraEyePositionX = -2.0f;
-const GLfloat kDefaultCameraEyePositionZ = -22.9f;
-const GLfloat kDefaultCameraYaw = 152.5f;
-const GLfloat kDefaultCameraPitch = 0.0f;
+const GLfloat kDefaultCameraEyePositionX = 9.0f;
+const GLfloat kDefaultCameraEyePositionZ = -27.5f;
+const GLfloat kDefaultCameraYaw = 160.0f;
+const GLfloat kDefaultCameraPitch = 6.2f;
 const GLfloat kCameraUpX = 0, kCameraUpY = 1, kCameraUpZ = 0;
 GLfloat camera_eye_x = kDefaultCameraEyePositionX;
 GLfloat camera_eye_y = kRoadHeight * kWorldScale + kCameraEyeHeight;
@@ -345,12 +341,14 @@ CollisionBox transform_collision_box(const CollisionBox& local,
   return box;
 }
 
-CollisionBox tree_trunk_bounds(const GlbModel& tree) {
+CollisionBox tree_trunk_bounds(const GlbModel& tree, GLfloat scale) {
   const CollisionBox whole = model_collision_bounds(tree);
   const GLfloat limit = std::numeric_limits<GLfloat>::max();
   CollisionBox trunk{limit, whole.min_y, limit, -limit,
-                     whole.min_y + (whole.max_y - whole.min_y) * 0.4f, -limit};
-  const GLfloat base_top = whole.min_y + (whole.max_y - whole.min_y) * 0.2f;
+                     std::min(whole.max_y, whole.min_y + kCameraEyeHeight / (kWorldScale * scale)), -limit};
+  const GLfloat base_top = std::min(trunk.max_y,
+      whole.min_y + (whole.max_y - whole.min_y) * 0.15f);
+  bool found_trunk = false;
   for (unsigned int i = 0; i < tree.scene->mNumMeshes; ++i) {
     const aiMesh* mesh = tree.scene->mMeshes[i];
     aiString material;
@@ -362,10 +360,15 @@ CollisionBox tree_trunk_bounds(const GlbModel& tree) {
       if ((v.y - tree.center_y) * tree.normalization_scale > base_top) continue;
       const GLfloat x = (v.x - tree.center_x) * tree.normalization_scale;
       const GLfloat z = (v.z - tree.center_z) * tree.normalization_scale;
+      found_trunk = true;
       trunk.min_x = fminf(trunk.min_x, x); trunk.max_x = fmaxf(trunk.max_x, x);
       trunk.min_z = fminf(trunk.min_z, z); trunk.max_z = fmaxf(trunk.max_z, z);
     }
   }
+  if (!found_trunk) return whole;
+  const GLfloat margin = 0.04f / (kWorldScale * scale);
+  trunk.min_x -= margin; trunk.max_x += margin;
+  trunk.min_z -= margin; trunk.max_z += margin;
   return trunk;
 }
 
@@ -402,9 +405,8 @@ void initialize_collisions() {
     scene_collisions.push_back(transform_collision_box(pole,
         lamp.x, lamp_ground_y, lamp.z, kLampScale, kLampScale, kLampScale, 0, lamp.rotation_y));
   }
-  add(model, kParkedCarPositionX, car_ground_y, kParkedCarPositionZ, 1);
-  const CollisionBox platano_trunk = tree_trunk_bounds(platano_tree_model);
-  const CollisionBox maple_trunk = tree_trunk_bounds(maple_tree_model);
+  const CollisionBox platano_trunk = tree_trunk_bounds(platano_tree_model, kPlatanoTreeScale);
+  const CollisionBox maple_trunk = tree_trunk_bounds(maple_tree_model, kMapleTreeScale);
   for (const TreePosition& tree : trees) {
     const GLfloat scale = tree.is_platano ? kPlatanoTreeScale : kMapleTreeScale;
     const GLfloat ground_y = tree.is_platano ? platano_tree_ground_y : maple_tree_ground_y;
@@ -926,13 +928,6 @@ void draw(GLFWwindow* window) {
   draw_neymar_with_umbrella();
   draw_scene_object(pikachu_model, -8.1f, pikachu_ground_y, -15.8f, kPikachuScale, 0, 90);
 
-  glPushMatrix();
-  glTranslatef(kParkedCarPositionX, car_ground_y, kParkedCarPositionZ);
-
-  glEnable(GL_TEXTURE_2D);
-  draw_model_display_list(model);
-  glDisable(GL_TEXTURE_2D);
-  glPopMatrix();
   draw_trees();
   draw_rain();
   glPopMatrix();
@@ -979,13 +974,23 @@ int main() {
     return EXIT_FAILURE;
   }
 
-  GLFWwindow* window = glfwCreateWindow(800, 800, "", NULL, NULL);
+  GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+  const GLFWvidmode* mode = monitor ? glfwGetVideoMode(monitor) : nullptr;
+  if (!mode) {
+    std::cerr << "Falha ao obter a resolucao do monitor" << std::endl;
+    glfwTerminate();
+    return EXIT_FAILURE;
+  }
+  glfwWindowHint(GLFW_RED_BITS, mode->redBits);
+  glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
+  glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
+  glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
+  GLFWwindow* window = glfwCreateWindow(mode->width, mode->height, "", monitor, nullptr);
   if (!window) {
     std::cerr << "Falha ao criar a janela GLFW" << std::endl;
     glfwTerminate();
     return EXIT_FAILURE;
   }
-  glfwSetWindowPos(window, 0, 0);
   glfwSetWindowTitle(window, "Carregando modelo 3D... aguarde");
   glfwMakeContextCurrent(window);
 
@@ -1037,12 +1042,6 @@ int main() {
   glfwPollEvents();
   std::cout << "Carregando o modelo 3D, aguarde..." << std::endl;
 
-  if (!load_model(model, "models/sports_car.glb")) {
-    glfwDestroyWindow(window);
-    glfwTerminate();
-    return EXIT_FAILURE;
-  }
-
   if (!load_texture_external(road_texture, "textures/aerial_asphalt_01_diff_1k.jpg") ||
       !load_model(street_lamp_model, "models/street_lamp/Street_Light_A_02.obj") ||
       !load_model(house_model, "models/house.glb") ||
@@ -1053,7 +1052,6 @@ int main() {
       !load_model(pikachu_model, "models/pikachu/pikachu.obj", true, true) ||
       !load_model(platano_tree_model, "models/trees/platano_tree.glb") ||
       !load_model(maple_tree_model, "models/trees/maple_tree.glb")) {
-    destroy_model(model);
     destroy_model(street_lamp_model);
     destroy_model(house_model);
     destroy_model(neymar_model);
@@ -1068,7 +1066,6 @@ int main() {
     return EXIT_FAILURE;
   }
 
-  car_ground_y = model_ground_position(model, 1, kRoadHeight);
   house_ground_y = model_ground_position(house_model, kHouseScale, kGrassHeight);
   lamp_ground_y = model_ground_position(street_lamp_model, kLampScale, kSidewalkHeight);
   neymar_ground_y = model_ground_position(neymar_model, kNeymarScale, kGrassHeight);
@@ -1081,13 +1078,12 @@ int main() {
     material.second = aiColor4D(0.78f, 0.80f, 0.83f, 1);
   }
 
-  if (!create_model_display_list(model) || !create_model_display_list(street_lamp_model) ||
+  if (!create_model_display_list(street_lamp_model) ||
       !create_model_display_list(house_model) ||
       !create_model_display_list(neymar_model) || !create_model_display_list(umbrella_model) ||
       !create_model_display_list(beetle_model) || !create_model_display_list(cloud_model) ||
       !create_model_display_list(pikachu_model) || !create_tree_display_list(platano_tree_model) ||
       !create_tree_display_list(maple_tree_model)) {
-    destroy_model(model);
     destroy_model(street_lamp_model);
     destroy_model(house_model);
     destroy_model(neymar_model);
@@ -1138,7 +1134,6 @@ int main() {
   for (GLuint list : house_color_display_lists) {
     if (list) glDeleteLists(list, 1);
   }
-  destroy_model(model);
   destroy_model(street_lamp_model);
   destroy_model(house_model);
   destroy_model(neymar_model);
